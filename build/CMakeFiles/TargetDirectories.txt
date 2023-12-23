@@ -1,0 +1,2 @@
+C:/Users/denki/Documents/PlatformIO/Projects/dentaroUI/build/CMakeFiles/edit_cache.dir
+C:/Users/denki/Documents/PlatformIO/Projects/dentaroUI/build/CMakeFiles/rebuild_cache.dir
