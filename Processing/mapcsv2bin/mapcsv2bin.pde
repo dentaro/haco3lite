@@ -69,7 +69,7 @@ void processImage() {
 // Output compressed data to a binary file
 DataOutputStream compressedOutput = null;
 try {
-  compressedOutput = new DataOutputStream(new FileOutputStream("compressed_data.bin"));
+  compressedOutput = new DataOutputStream(new FileOutputStream("w.bin"));
 
   String[] lines = loadStrings("output.csv");
   int totalLines = lines.length;
