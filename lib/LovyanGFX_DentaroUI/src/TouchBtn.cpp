@@ -105,7 +105,17 @@ void TouchBtn::btnDraw(LovyanGFX&  _lcd)
   _lcd.setFont(&lgfxJapanGothicP_8);
   _lcd.setTextColor(TFT_RED);
   int8_t s_str_hw = floor(_lcd.textWidth( btn_name ) / 2);
+  // if( btn_mode == TOUCH_FLICK_MODE )
+  // {
+  // String btn_name_headline = "";
+  // if(btn_name == "A")btn_name_headline = "ABC";
+  // else if(btn_name == "a")btn_name_headline = "abc";
+  // _lcd.drawString( btn_name_headline, s_x + s_hw - s_str_hw , s_y + s_hh - 4 );
+  // }else{
+  //   _lcd.drawString( btn_name, s_x + s_hw - s_str_hw , s_y + s_hh - 4 );
+  // }
   _lcd.drawString( btn_name, s_x + s_hw - s_str_hw , s_y + s_hh - 4 );
+  
 }
 
 void TouchBtn::sliderDraw(LovyanGFX& _lcd)
@@ -331,13 +341,13 @@ void TouchBtn::run2(int _btnID, int _btnNo, int _sx, int _sy, int _tx, int _ty, 
                 this->sliderValy = float(tp.y - s_y)/s_h;
               }
             }
+          
           }else{
-            this->sliderPosx = 0;
-            this->sliderPosy = 0;
+            // this->sliderPosx = 0;
+            // this->sliderPosy = 0;
 
-            this->sliderValx = 0.5;
-            this->sliderValy = 0.5;
-            
+            // this->sliderValx = 0.5;
+            // this->sliderValy = 0.5;
           }
         }
         ite2++;

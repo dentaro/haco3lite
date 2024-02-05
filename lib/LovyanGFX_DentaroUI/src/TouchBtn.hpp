@@ -16,11 +16,11 @@
 
 //自作基板などで、AUTODETECTの代わりにカスタム設定を使いたいときはこちらを編集して下さい。
 #include "LGFX_ESP32_custom_2432S028R.hpp"
+// #include "LGFX_ESP32_custom_2432S022.hpp"
 
 using namespace std;
 
 #include <list>
-
 
 #define USE_PSRAM true
 
@@ -154,8 +154,7 @@ class TouchBtn {
     uint8_t bgColorIndex;
     // LGFX_Sprite divSprite0;
     uint16_t color = TFT_WHITE;
-    uint8_t btnID = 0;//すべてのボタンの固有のID
-    uint8_t btnNo = 0;//UI内での順番
+    
     
     // bool selectBtnF = false;
     
@@ -184,6 +183,9 @@ public:
     String label = "";//ボタン番号
     String btn_name = "";//ボタンの名前
     String namelabel = "あ";
+    String shift_btn_name = "べ";
+    uint8_t btnID = 0;//すべてのボタンの固有のID
+    uint8_t btnNo = 0;//UI内での順番
     uint16_t s_x = 0;
     uint16_t s_y = 0;
     uint16_t s_w = 48;

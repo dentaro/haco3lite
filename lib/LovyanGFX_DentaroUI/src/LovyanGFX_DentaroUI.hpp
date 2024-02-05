@@ -53,11 +53,14 @@ using namespace std;
 // #define SHIFT_NUM 5//シフトパネルの数
 #define HENKAN_NUM 57
 
+#define PRESET_BTN_NUM 20
+
 #define VISIBLE true
 #define INVISIBLE false
 
 //--地図用
 #define BUF_PNG_NUM 1
+
 
 
 class MyTFT_eSPI : public LGFX {
@@ -192,8 +195,8 @@ class UiContainer{
   bool toggle_mode = false;
 };
 
-
 class RetClass;
+class LovyanGFX_DentaroUI;
 
 class Panel {
   public:
@@ -224,6 +227,7 @@ class Panel {
   int parentID = 0;
   String label = "";
   String btn_name = "0";
+  // String shift_btn_name = "ば";
   
   bool toggle_mode = false;
 
@@ -242,28 +246,95 @@ class Panel {
     clearTouchBtns();  // Panel オブジェクトが破棄されるときに TouchBtn オブジェクトも解放
   }
 
-  void btnDraw(LovyanGFX&  _lcd, int _x, int _y, int _w, int _h)
-  {
-    btnDraw(_lcd, _x,  _y,  _w,  _h ,"");
-  }
+  // String getHenkanChar(int _henkanListNo, int _kanaShiftNo)
+  // {
+  //   return kanalist[_henkanListNo][_kanaShiftNo];
+  // }
 
-  void btnDraw(LovyanGFX&  _lcd, int _x, int _y, int _w, int _h, String _btn_name)
+  void panelbtnDraw(LovyanGFX&  _lcd, int _x, int _y, int _w, int _h, String _btn_name, size_t _btnID, size_t _kanaShiftNo)
   {
     _lcd.fillRoundRect( _x, _y, _w, _h, 5, TFT_BLACK );
     _lcd.drawRoundRect( _x, _y, _w, _h, 5, TFT_WHITE );
 
-    if(btn_mode!=0){
+    if(btn_mode != TOUCH_PRE_MODE){
       //  if( visibleF == true ){
       _lcd.setTextColor( TFT_WHITE );
       _lcd.setTextSize(1);
-      _lcd.setCursor(_x+8 , _y+8 );
-      _lcd.setFont(&lgfxJapanGothicP_20);
+      _lcd.setCursor(_x+4 , _y+10 );
+      _lcd.setFont(&lgfxJapanGothicP_16);
       _lcd.setTextWrap(true);
       _lcd.setTextScroll(true);
-      _lcd.print( _btn_name );
-      //}
+      size_t touchBtnID = _btnID - 20 - PRESET_BTN_NUM;
+
+      if(btn_mode == TOUCH_FLICK_MODE){
+        if(_btnID >= 40 ){
+          if(_kanaShiftNo==0){
+            touchBtns[touchBtnID]->shift_btn_name  = _btn_name;
+          }
+          else
+          {
+            if (_btn_name != "ま" || _btn_name != "な")
+              {
+                // if (_kanaShiftNo == 1 || _kanaShiftNo == 2)
+                // {
+                //   int i = 0;
+                //   while (_btn_name != kanalist[i][0] || i > HENKAN_NUM - 1)
+                //   {
+                //     i++;
+                //     if (i > HENKAN_NUM - 1)
+                //       break;
+                //   }
+                //   if (i < HENKAN_NUM && kanalist[i][_kanaShiftNo].c_str() != NULL)
+                //     touchBtns[touchBtnID]->shift_btn_name = kanalist[i][_kanaShiftNo].c_str();
+                //   else if (i < HENKAN_NUM && kanalist[i][_kanaShiftNo].c_str() != "＿")
+                //     touchBtns[touchBtnID]->shift_btn_name = "無";
+                //   else
+                //     touchBtns[touchBtnID]->shift_btn_name = "虚";
+                // }
+              }
+          }
+
+          _lcd.print( touchBtns[_btnID - 20 - PRESET_BTN_NUM]->shift_btn_name );
+        }else{
+          String btn_name_headline = "";
+          if(_btn_name == "#"){btn_name_headline = "#@|&";}
+          else if(_btn_name == "A"){btn_name_headline = "ABC";}
+          else if(_btn_name == "D"){btn_name_headline = "DEF";}
+          else if(_btn_name == "G"){btn_name_headline = "GHI";}
+          else if(_btn_name == "J"){btn_name_headline = "JKL";}
+          else if(_btn_name == "M"){btn_name_headline = "MNO";}
+          else if(_btn_name == "P"){btn_name_headline = "PQRS";}
+          else if(_btn_name == "T"){btn_name_headline = "TUV";}
+          else if(_btn_name == "W"){btn_name_headline = "WXYZ";}
+          else if(_btn_name == "^"){btn_name_headline = "^[$]\\";}
+          else if(_btn_name == "'"){btn_name_headline = "'<\">";}
+          else if(_btn_name == "."){btn_name_headline = ".?!";}
+
+          else if(_btn_name == "%"){btn_name_headline = "%#@&";}
+          else if(_btn_name == "a"){btn_name_headline = "abc";}
+          else if(_btn_name == "d"){btn_name_headline = "def";}
+          else if(_btn_name == "g"){btn_name_headline = "ghi";}
+          else if(_btn_name == "j"){btn_name_headline = "jkl";}
+          else if(_btn_name == "m"){btn_name_headline = "mno";}
+          else if(_btn_name == "p"){btn_name_headline = "pqrs";}
+          else if(_btn_name == "t"){btn_name_headline = "tuv";}
+          else if(_btn_name == "w"){btn_name_headline = "wxyz";}
+          else if(_btn_name == "-"){btn_name_headline = "-(/)_";}
+          else if(_btn_name == ":"){btn_name_headline = ":'\"";}
+          else if(_btn_name == "."){btn_name_headline = ".?!";}
+          else {btn_name_headline = _btn_name;}
+
+          _lcd.print( btn_name_headline );
+        }
+
+      }else{
+        _lcd.print( _btn_name );
+      }
+
+      // _lcd.print( _btn_name );
     }
   }
+
 
   void setBtnName(String _btn_name){
     btn_name = _btn_name;
@@ -465,70 +536,6 @@ class LovyanGFX_DentaroUI {
   uint8_t lastTapCount = 0;
   bool jadgeF = false;
 
-  String kanalist[HENKAN_NUM][3] = {
-  {"あ","ぁ","＿"},
-  {"い","ぃ","ゐ"},
-  {"う","ぅ","＿"},
-  {"え","ぇ","ゑ"},
-  {"お","ぉ","＿"},
-  {"か","が","＿"},
-  {"き","ぎ","＿"},
-  {"く","ぐ","＿"},
-  {"け","げ","＿"},
-  {"こ","ご","＿"},
-
-  {"さ","ざ","＿"},
-  {"し","じ","＿"},
-  {"す","ず","＿"},
-  {"せ","ぜ","＿"},
-  {"そ","ぞ","＿"},
-  {"た","だ","＿"},
-  {"ち","ぢ","＿"},
-  {"つ","っ","づ"},
-  {"て","で","＿"},
-  {"と","ど","＿"},
-
-  {"は","ば","ぱ"},
-  {"ひ","び","ぴ"},
-  {"ふ","ぶ","ぷ"},
-  {"へ","べ","ぺ"},
-  {"ほ","ぼ","ぽ"},
-  {"や","ゃ","＿"},
-  {"ゆ","ゅ","＿"},
-  {"よ","ょ","＿"},
-  {"ー","～","＿"},
-
-  {"ア","ァ","＿"},
-  {"イ","ィ","ヰ"},
-  {"ウ","ゥ","＿"},
-  {"エ","ェ","ヱ"},
-  {"オ","ォ","＿"},
-  {"カ","ガ","＿"},
-  {"キ","ギ","＿"},
-  {"ク","グ","＿"},
-  {"ケ","ゲ","＿"},
-  {"コ","ゴ","＿"},
-
-  {"サ","ザ","＿"},
-  {"シ","ジ","＿"},
-  {"ス","ズ","＿"},
-  {"セ","ゼ","＿"},
-  {"ソ","ゾ","＿"},
-  {"タ","ダ","＿"},
-  {"チ","ヂ","＿"},
-  {"ツ","ッ","ヅ"},
-  {"テ","デ","＿"},
-  {"ト","ド","＿"},
-
-  {"ハ","バ","パ"},
-  {"ヒ","ビ","ピ"},
-  {"フ","ブ","プ"},
-  {"ヘ","ベ","ペ"},
-  {"ホ","ボ","ポ"},
-  {"ヤ","ャ","＿"},
-  {"ユ","ュ","＿"},
-  {"ヨ","ョ","＿"},
-};
 
     lgfx::v1::touch_point_t tp;
     lgfx::v1::touch_point_t sp;
@@ -596,7 +603,7 @@ class LovyanGFX_DentaroUI {
     String previewFlickChar = "";
     String finalChar ="";
     int fpNo = 0;
-    int kanaShiftNo = 0;
+    // int kanaShiftNo = 0;
     bool selectModeF = false;
     int curbtnID;//現在の行番号
     int curKanaRowNo = 0;
@@ -688,8 +695,12 @@ class LovyanGFX_DentaroUI {
     //----Map用ここまで
     int phbtnState[4];//物理ボリューム
     int flickShiftNo = 0;
+    // int preflickShiftNo = 0;
+    int kanaShiftNo = 0;
 
 public:
+
+
   std::vector<Ui*> uis;
 
   LovyanGFX_DentaroUI( LGFX* _lcd );
@@ -697,10 +708,78 @@ public:
 
   LGFX_Sprite layoutSprite_list[BUF_PNG_NUM];
 
+//メモリ確保のために一時的に消す
+
+// const String kanalist[HENKAN_NUM][3] = {
+//   {"あ","ぁ","＿"},
+//   {"い","ぃ","ゐ"},
+//   {"う","ぅ","＿"},
+//   {"え","ぇ","ゑ"},
+//   {"お","ぉ","＿"},
+//   {"か","が","＿"},
+//   {"き","ぎ","＿"},
+//   {"く","ぐ","＿"},
+//   {"け","げ","＿"},
+//   {"こ","ご","＿"},
+
+//   {"さ","ざ","＿"},
+//   {"し","じ","＿"},
+//   {"す","ず","＿"},
+//   {"せ","ぜ","＿"},
+//   {"そ","ぞ","＿"},
+//   {"た","だ","＿"},
+//   {"ち","ぢ","＿"},
+//   {"つ","づ","っ"},
+//   {"て","で","＿"},
+//   {"と","ど","＿"},
+
+//   {"は","ば","ぱ"},
+//   {"ひ","び","ぴ"},
+//   {"ふ","ぶ","ぷ"},
+//   {"へ","べ","ぺ"},
+//   {"ほ","ぼ","ぽ"},
+//   {"や","ゃ","＿"},
+//   {"ゆ","ゅ","＿"},
+//   {"よ","ょ","＿"},
+//   {"ー","～","＿"},
+
+//   {"ア","ァ","＿"},
+//   {"イ","ィ","ヰ"},
+//   {"ウ","ゥ","＿"},
+//   {"エ","ェ","ヱ"},
+//   {"オ","ォ","＿"},
+//   {"カ","ガ","＿"},
+//   {"キ","ギ","＿"},
+//   {"ク","グ","＿"},
+//   {"ケ","ゲ","＿"},
+//   {"コ","ゴ","＿"},
+
+//   {"サ","ザ","＿"},
+//   {"シ","ジ","＿"},
+//   {"ス","ズ","＿"},
+//   {"セ","ゼ","＿"},
+//   {"ソ","ゾ","＿"},
+//   {"タ","ダ","＿"},
+//   {"チ","ヂ","＿"},
+//   {"ツ","ヅ","ッ"},
+//   {"テ","デ","＿"},
+//   {"ト","ド","＿"},
+
+//   {"ハ","バ","パ"},
+//   {"ヒ","ビ","ピ"},
+//   {"フ","ブ","プ"},
+//   {"ヘ","ベ","ペ"},
+//   {"ホ","ボ","ポ"},
+//   {"ヤ","ャ","＿"},
+//   {"ユ","ュ","＿"},
+//   {"ヨ","ョ","＿"},
+//   };
+
   //LovyanGFX* lgfx;//グラフィックのみ
   // LGFX_Sprite flickUiSprite;//フリック展開パネル用
   void update( LGFX& _lcd );
-  
+  void update2( LGFX& _lcd );
+
   void begin( LGFX& _lcd, int _colBit, int _rotateNo);
   void begin( LGFX& _lcd, int _colBit, int _rotateNo, bool _calibF);
   void begin( LGFX& _lcd, String _host, int _shiftNum, int _colBit, int _rotateNo, bool _calibF );
@@ -718,6 +797,8 @@ public:
   void rect(LovyanGFX* _lcd, uint16_t c, int fillF);
   float getAngle(lgfx::v1::touch_point_t a, lgfx::v1::touch_point_t b );
   float getDist(lgfx::v1::touch_point_t a, lgfx::v1::touch_point_t b );
+  size_t getVecNo();
+
   int getPreEvent();
 
   void updateSelectBtnID(int _selectBtnID);
@@ -744,12 +825,16 @@ public:
   // void setFlickPanel(int _flickPanelID, int _btnID, String _btnsString, int _btn_mode);
   void setFlickPanel( int _flickPanelID, int _btnID, String _btnsString );
   bool readFlickData(int _uiId,int startLine);
-  void readFlickDataline(int _uiId, int _btnID);
+  // void readFlickDataline(int _uiId, int _btnID);
+  void readFlickDataline(int _PRESET_BTN_NUM, int _uiId, int _btnID);
 
   String getFlickline(int flickDatalineNo);
-  String getFlickChar(int _uiId, int _btnID);
+  String getFlickChar(int _selectbtnID);//0~4
+  String getFlickChar(int _PRESET_BTN_NUM, int _uiId, int _btnID);
   void setupFlickData(int _uiId);
   void flickShift();
+  void kanaShift();
+  void kanaShift(size_t _kanaShiftNo);
   void drawFlicks(int _uiId, LovyanGFX& _lcd);
   void drawBtns(int _uiId, LovyanGFX& _lcd);
 
@@ -780,7 +865,7 @@ public:
   float getSliderVal(int _uiId, int _panel_no, int _btnNo, int _xy);
   Vec2 getSliderVec2( int _uiId, int _btnNo );
 
-  void setSliderVal(int _uiId, int _btnNo, float _x, float _y);
+  void setSliderVal(int _uiId, int _panel_no, int _btnNo, float _x, float _y);
   bool getToggleVal(int _uiId, int _btnNo);
   // bool getToggleVal(int _btnID);
   // bool getToggleVal2();
@@ -812,14 +897,14 @@ public:
 
   void showInfo( LovyanGFX& _lcd, int _infox, int _infoy);
 
-  String getHenkanChar(int _henkanListNo, int _kanaShiftNo);
+  // String getHenkanChar(int _henkanListNo, int _kanaShiftNo);
   void setFlick(int _uiId, int _panelId, int _FlickUiID, int _LeftBtnUiID, int _RightBtnUiID);//キーボード用プリセッ；
   void setFlick(int _uiId, int _panelId, int _charMode, int _FlickUiID, int _LeftBtnUiID, int _RightBtnUiID );
   String getInvisibleFlickStrings();
   String getFlickString();
   String getFlickString(bool _visibleMode);
   String getFlickline();
-  String getKana(int _panelID, int _rowID, int _colID, int _transID);
+  // String getKana(int _panelID, int _rowID, int _colID, int _kanaShiftNo);
 
   const char* next_c_mb(const char* c);
   void ngetc(char* const dst,const char* src);
@@ -828,7 +913,9 @@ public:
 
   String delEndChar(String _str, int _ByteNum);
 
-  void delChar();
+  // void delChar();
+  // String delChar(String _flickStr);
+  String delChar(const String& _flickStr);
   void switchToggleVal();
 
   //---Map用関数
@@ -912,10 +999,10 @@ public:
   void resetEventBits();
 
   //物理ボタン
-  void updatePhVols();
-  int getPhVol(int n);
-  int getPhVolDir(int n);
-  int getPhVolVec(int n1, int n2); 
+  // void updatePhVols();
+  // int getPhVol(int n);
+  // int getPhVolDir(int n);
+  // int getPhVolVec(int n1, int n2); 
 
   void setConstantGetF(bool _constantGetF);
 
@@ -926,7 +1013,7 @@ public:
     int _touchZoom, int _eventNo, int _xy_mode, int _uiContainerID);
 
   void createUIs(int uiContainernum);
-  void deletePanels(int _uiContainerID, size_t PRESET_BTN_NUM);
+  void deletePanels(int _uiContainerID, size_t _PRESET_BTN_NUM);
   void clearAddBtns();
   void showSavedCalData(LGFX& _lcd);
 
