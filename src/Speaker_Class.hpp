@@ -1,16 +1,21 @@
-// Copyright (c) M5Stack. All rights reserved.
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 #include <Arduino.h>
+// #include "CRingBuffur.hpp"
 #ifndef __M5_Speaker_Class_H__
 #define __M5_Speaker_Class_H__
 
+#define TFT_RUN_MODE 0
+#define TFT_EDIT_MODE 1
+#define TFT_WIFI_MODE 2
+#define TFT_SOUND_MODE 3
+#define TFT_MUSICPLAY_MODE 4
 // #include "m5unified_common.h"
-
+//aaa
 #if defined ( ESP_PLATFORM )
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/i2s.h>
+#include <LovyanGFX_DentaroUI.hpp>
 
 #endif
 
@@ -22,8 +27,9 @@
 
 // namespace m5
 // {
-  // class M5Unified;
+  class M5Unified;
 
+ 
   struct speaker_config_t
   {
     /// i2s_data_out (for spk)
@@ -70,12 +76,14 @@
     i2s_port_t i2s_port = i2s_port_t::I2S_NUM_0;
   };
 
+
+
   class Speaker_Class
   {
+  friend M5Unified;
 
-  // friend M5Unified;
   public:
-
+    static size_t speakerEffectNo;
 
     virtual ~Speaker_Class(void) {}
 
@@ -87,6 +95,7 @@
     void end(void);
 
     bool isRunning(void) const { return _task_running; }
+
 
     bool isEnabled(void) const
     {
@@ -156,7 +165,9 @@
     /// @param frequency tone frequency (Hz)
     /// @param duration tone duration (msec)
     /// @param channel virtual channel number. (0~7), (default = automatically selected)
-    bool tone(float frequency, uint32_t duration = UINT32_MAX, int channel = -1, bool stop_current_sound = true) { return tone(frequency, duration, channel, stop_current_sound, _default_tone_wav, sizeof(_default_tone_wav), false); }
+    bool tone(float frequency, uint32_t duration = UINT32_MAX, int channel = -1, bool stop_current_sound = true) { 
+      return tone(frequency, duration, channel, stop_current_sound, _default_tone_wav, sizeof(_default_tone_wav), false); 
+      }
 
     /// play raw sound wave data. (for signed 8bit wav data)
     /// @param raw_data wave data.
@@ -232,6 +243,7 @@
     static constexpr const size_t sound_channel_max = 8;
 
     static const uint8_t _default_tone_wav[16];
+    static const uint8_t _tone_wav[8][16];
 
     void setCallback(void* args, bool(*func)(void*, bool)) { _cb_set_enabled = func; _cb_set_enabled_args = args; }
 

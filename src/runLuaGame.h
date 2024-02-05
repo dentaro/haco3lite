@@ -8,14 +8,12 @@
 #include "SPIFFS.h"
 #include "baseGame.h"
 // #include "Tunes.h"
-
 // #include "Editor.h"
 
 #include <bitset>
 #include <iostream>
 #include <fstream>
 
-// #include "Speaker_Class.hpp"
 #include "Channel.hpp"
 
 extern "C"{
@@ -27,18 +25,21 @@ extern "C"{
 #ifndef RUN_LUA_GAME_H
 #define RUN_LUA_GAME_H
 
-#define MAX_CHAR 256//512//1024
-// #define MAX_CHAR 2048
+#define MAX_CHAR 2048
 
-// #define LUA_BUFFERSIZE 1024
-// #define LUA_BUFFERSIZE_PS (LUA_BUFFERSIZE * 2)
-
-#define LUA_BUFSIZE 1024
-
-struct LoadF{
+struct LoadF {
   File f;
-  char buf[MAX_CHAR];
+  char* buf; // ポインタを使用
+
+  // コンストラクタでメモリ確保
+  LoadF(size_t size) : buf(new char[size]) {}
+
+  // デストラクタでメモリ解放
+  ~LoadF() {
+    delete[] buf; // ポインタを使用してメモリを解放
+  }
 };
+
 
 inline uint16_t lua_rgb24to16(uint8_t r, uint8_t g, uint8_t b) {
   uint16_t tmp = ((r>>3) << 11) | ((g>>2) << 5) | (b>>3);
@@ -60,11 +61,9 @@ class RunLuaGame: public BaseGame
     luaL_Buffer b;
     byte col[3] = {0,0,0};
     byte col2[3] = {0,0,0};
-
-    // std::deque<int> buttonState;//ボタンの個数未定
     int touchState;//タッチボタン
     int tp[2] ={0,0};
-    uint16_t palette[256];
+    // uint16_t palette[256];//メモリ不足のため不採用
 
     // bool wifiDebugRequest = true;//外部ファイルから書き換えテifiモードにできる
     // bool wifiDebugSelf = false;
@@ -126,7 +125,7 @@ class RunLuaGame: public BaseGame
     static int l_drawcircle(lua_State* L);
     static int l_drawtri(lua_State* L);
     static int l_filltri(lua_State* L);
-    static int l_phbtn(lua_State* L);
+    // static int l_phbtn(lua_State* L);
     static int l_key(lua_State* L);
     static int l_btn(lua_State* L);
     static int l_touch(lua_State* L);

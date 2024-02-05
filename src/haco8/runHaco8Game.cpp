@@ -1,7 +1,6 @@
 #include "runHaco8Game.h"
 extern LGFX screen;
 extern MyTFT_eSprite tft;
-// extern LGFX_Sprite sprite64;
 extern LGFX_Sprite sprite88_roi;
 extern String nowappfileName;
 extern String appfileName;
@@ -10,11 +9,8 @@ extern void setFileName(String s);
 extern void runFileName(String s);
 extern bool isWifiDebug();
 extern void reboot();
-
-// extern int gethaco3Col(uint8_t _cno);
 extern uint16_t gethaco3Col(size_t haco3ColNo);
 extern std::vector<std::vector<uint8_t>> mapArray_rl;
-// extern Tunes tunes;
 extern File wfr;
 extern int pressedBtnID;
 extern LovyanGFX_DentaroUI ui;
@@ -36,36 +32,36 @@ extern int ytileNo;
 extern bool downloadF;
 extern LGFX_Sprite sprref;
 extern size_t toolNo;
-
-// extern float sinValues[90];// 0から89度までの91個の要素
-// extern String newKeys[BUF_PNG_NUM];
-
-extern String oldKeys[BUF_PNG_NUM];
-
+extern int gStartRow;//intでないとLuaから渡せない
 extern Vector3<float> currentgpos;
-
 extern Vector3<float> prePos;
 extern Vector3<float> currentPos;
 extern Vector3<float> diffPos;
 extern int dirNos[9];
-
 extern std::vector<String> temporaryKeys;
 extern std::vector<String> previousKeys;
 extern std::vector<String> writableKeys;
-
 extern std::vector<String> downloadKeys;
 extern std::vector<String> predownloadKeys;
 extern std::vector<String> allKeys;
 extern std::vector<String> preallKeys;
+// extern SemaphoreHandle_t rmapSemaphore;
+extern SemaphoreHandle_t nextFrameSemaphore;
+// extern SemaphoreHandle_t drawmapSemaphore;
 
 extern int shouldNo;
 extern int downloadLimitNum;
+extern bool drawMap();
+extern bool readRowFromBinary2(const char *filename);
+extern bool drawBinaryF;
+
 bool alreadyDownlordedF= false;
 String currentKey = "";
 extern String targetKey;
 extern float tileZoom;
 extern int currentDirNo;
 extern float bairitu;
+extern bool drawWaitF;
 bool collF=true;
 int mx = 62;//64;//128;//ダウンロードを先読みする距離
 int my = 58;//60;//120;//ダウンロードを先読みする距離
@@ -97,7 +93,7 @@ extern LGFX_Sprite mapTileSprites[1];
 // extern void downloadTask(void *pvParameters);
 // extern void taskCompleteCallback();
 extern void setAllKeys(String _key);
-extern void setOpenConfig(String fileName, int _isEditMode);
+extern void setOpenConfig(String fileName, size_t _isEditMode);
 
 
 extern std::deque<int> buttonState;//ボタンの個数未定
@@ -108,219 +104,14 @@ Intersection intersections[32];
 
 std::vector<std::vector<float>> polygonData;
 
-SemaphoreHandle_t xSemaphore;
+// SemaphoreHandle_t xSemaphore;
 
-std::vector<uint8_t> rowData;
-size_t startRow;
+extern std::vector<uint8_t> rowData;
 
 
-// SPIFFS ファイルを開いて読み取る関数
-bool readRowFromBinary(const char *filename, size_t startRow) {
-  File file = SPIFFS.open(filename, "rb");
-
-  Serial.println(startRow);
-
-    
-  if (!file) {
-      Serial.println("Error opening file");
-      return false;
-  }
-
-  constexpr int BufferSize = 8;//8以下だと落ちないそれ以上だと落ちるっぽい
+void printMapArray(String _mapFileName, size_t wx, size_t wy) {
   
-  std::vector<uint8_t> buffer;  
-  int bytesRead;
-  int nnum = 0;
-
-  // rowData = std::vector<uint8_t>();
-  rowData.clear();
-  
-  uint8_t sprno;
-  uint8_t repeatnum;
-
-  buffer.resize(BufferSize);  // バッファのサイズを設定
-  
-  while (1) {
-    int bytesRead = file.read(buffer.data(), buffer.size());
-
-    if (bytesRead == 0) {
-        // If no bytes were read, it indicates the end of the file
-        break;
-    }
-
-    for (size_t i = 0; i < bytesRead; ++i) {
-      // unsigned char compressedData = buffer[i];
-      uint8_t sprno = buffer[i] >> 5;
-      uint8_t repeatnum = buffer[i] & 0b00011111;
-
-      if (startRow > nnum) {
-          // スタート位置までスルーする
-      } else if (startRow <= nnum) {
-          if (nnum == startRow + DISP_SPR_H_NUM) break;
-          if (sprno == 0 && repeatnum == 0) {
-              repeatnum = 20;
-          }
-
-          rowData.push_back(sprno);
-          rowData.push_back(repeatnum);
-      }
-
-      if (sprno == 3 && repeatnum == 31) {
-          ++nnum;
-      }
-    }
-  }
-
-  file.close(); // ファイルを閉じる
-  return true;
-}
-
-void printMapArray(String _mapFileName, int wx, int wy) {
-
-  // Serial.println("mapArray_rl contents:");
-  int spr8numX = 8; // スプライトシートに並ぶ x、y の個数
-  int spr8numY = 8;
-  int w = 8;
-  int h = 8;
-  sprite88_roi.clear(); // 指定の大きさにスプライトを作り直す
-  sprite88_roi.createSprite(w, h);
-
-  size_t startRow = wy;
-  readRowFromBinary(_mapFileName.c_str(), startRow);
-
-    int ColCursor = 0;
-    size_t j = 0;  // 追加: 行数のインデックス
-    size_t sprno;
-    size_t presprno;
-    size_t repeatnum;
-
-    for (size_t i = 0; i < rowData.size(); i += 2) {
-      // int sprno = rowData[i]; // スプライト番号
-      // int repeatnum = rowData[i + 1];  // 繰り返し回数
-      // if (repeatnum == 0) repeatnum = 256;
-
-      sprno = rowData[i];          // スプライト番号
-      repeatnum = rowData[i + 1];;  // 繰り返し回数 
-
-      if (sprno == 3 && repeatnum == 31) {//終端条件のみ
-        repeatnum = 0;  // 繰り返し回数 
-        ColCursor = 0;  // 初期化
-        j++;          // 次の行へ
-
-      }else{
-        if(sprno == 7){//北と南の砂漠は氷に置き換える
-          if(wy>=220){
-            sprno = 15;
-          }
-          else if(wx>=49&&wy<=97){
-            sprno = 15;
-          }
         
-        }
-
-        int sx = sprno % spr8numX; // 0~7
-        int sy = sprno / spr8numY; // 整数の割り算は自動で切り捨てられる
-
-        
-        for (int y = 0; y < 8; y++) {
-          for (int x = 0; x < 8; x++) {
-            uint8_t bit4;
-            int sprpos;
-            // sprite64cnos(sy*8) * PNG_SPRITE_WIDTH + (sx*8) 取得スタート位置
-            // y*PNG_SPRITE_WIDTH + x スプライトのピクセル取得
-            sprpos = (sy * 8 * PNG_SPRITE_WIDTH + sx * 8 + y * PNG_SPRITE_WIDTH + x) / 2; // 4ビット2つで8ビットに入れているので1/2に
-            bit4 = sprite64cnos_vector[sprpos];
-            if (x % 2 == 1)bit4 = (bit4 & 0b00001111);
-            if (x % 2 == 0)bit4 = (bit4 >> 4);
-            
-            
-            // if(sprno==0){sprite88_roi.drawPixel((x+frame)%8, y, gethaco3Col(bit4));}//海の時
-            // else{
-              sprite88_roi.drawPixel(x, y, gethaco3Col(bit4));
-              // }
-
-          }
-        }
-              
-        
-        for (int n = 0; n < repeatnum; n++) 
-        {
-          int sprx = ColCursor + n;//0~256
-          int displaysprx = sprx - wx;//0~20画面内での座標
-          if (sprx >= wx && sprx < wx + DISP_SPR_W_NUM) {
-            
-            mapArray[j][displaysprx] = sprno; //表示されているマップのスプライト情報を取得しておく
-
-            // if(premapArray[j][displaysprx] != mapArray[j][displaysprx]){//背景差分のみ描画
-              // upspritenos[displaysprx] = sprno;
-              sprite88_roi.setPivot(w / 2.0, h / 2.0);
-              // sprite88_roi.pushSprite(&tft, (ColCursor + n - wx) * 8, (j-wy) * 8); // 横方向に ColCursor * 8 ずらす
-              sprite88_roi.pushSprite(&tft, (ColCursor + n - wx) * 8, j * 8);
-            // } 
-
-            //海岸線の場合は描写を足す
-            if(displaysprx!=0){
-              if(presprno==0 && sprno!=0){//海から陸ならば
-                tft.fillRect((ColCursor + n - wx - 1) * 8+7, j * 8, 1,8, gethaco3Col(7));
-              }
-              if(presprno!=0 && sprno==0){//陸から海ならば
-                tft.fillRect((ColCursor + n - wx) * 8, j * 8, 1,8, gethaco3Col(7));
-              }
-            }
-            
-
-            if(j!=0){
-              if(sprno!=0&&mapArray[j-1][displaysprx]==0){//陸の時上が海か
-                // sprite88_roi.pushSprite(&tft, (ColCursor + n - wx) * 8, j * 8);
-                tft.fillRect((ColCursor + n - wx) * 8, (j-1) * 8 + 7, 8,1, gethaco3Col(7));
-              }
-
-              if(sprno==0&&mapArray[j-1][displaysprx]!=0){//海の時上が陸か
-                // sprite88_roi.pushSprite(&tft, (ColCursor + n - wx) * 8, j * 8);
-                tft.fillRect((ColCursor + n - wx) * 8, j * 8, 8,1, gethaco3Col(7));
-              }
-
-            }
-            
-            presprno = sprno;
-
-          }
-        } // end of repeatnum loop
-        ColCursor += repeatnum; // 次のスプライト位置を更新
-      }
-      // Serial.println("");
-    }
-    
-    
-    // for(int x = 0; x<DISP_SPR_W_NUM; x++){
-    //   for(int y = 0; y<DISP_SPR_H_NUM; y++){
-    //     //海岸線の場合は描写を足す
-    //     if(x!=0){
-    //       if(mapArray[y][x-1]==0 && mapArray[y][x]!=0){//海から陸ならば
-    //         tft.fillRect((x-1) * 8 + 7, y * 8, 1,8, gethaco3Col(7));
-    //       }
-    //       if(mapArray[y][x-1]!=0 && mapArray[y][x]==0){//陸から海ならば
-    //         tft.fillRect(x * 8, y * 8, 1,8, gethaco3Col(7));
-    //       }
-    //     }
-        
-
-    //     if(y!=0){
-    //       if(mapArray[y][x]!=0&&mapArray[y-1][x]==0){//陸の時上が海か
-    //         // sprite88_roi.pushSprite(&tft, (ColCursor + n - wx) * 8, j * 8);
-    //         tft.fillRect(x * 8, (y-1) * 8 + 7, 8,1, gethaco3Col(7));
-    //       }
-
-    //       if(mapArray[y][x]==0&&mapArray[y-1][x]!=0){//海の時上が陸か
-    //         // sprite88_roi.pushSprite(&tft, (ColCursor + n - wx) * 8, j * 8);
-    //         tft.fillRect(x * 8, y * 8, 8,1, gethaco3Col(7));
-    //       }
-
-    //     }
-    //   }
-    // }
-  
-  // Serial.println("End of mapArray_rl");
 }
 
 RunHaco8Game::RunHaco8Game(int _gameState, String _mn){
@@ -880,17 +671,34 @@ uint8_t getMapSprNo2csv(File& wfr, int wy, int wx)
       i++;
     }
   }
-
   return sprno;
 }
 
-int RunHaco8Game::l_rmap(lua_State* L){
+extern int gSpr8numX;
+extern int gSpr8numY;
+extern int gWx;
+extern int gWy;
+extern  int gSprw;
+extern  int gSprh;
+
+int RunHaco8Game::l_rmap(lua_State* L)
+{
   RunHaco8Game* self = (RunHaco8Game*)lua_touserdata(L, lua_upvalueindex(1));
   String fn = lua_tostring(L, 1);
-  int wx = lua_tointeger(L, 2);
-  int wy = lua_tointeger(L, 3);
+  gWx = lua_tointeger(L, 2);
+  gWy = lua_tointeger(L, 3);
   mapFileName = fn;
-  printMapArray(mapFileName, wx, wy);
+  sprite88_roi.clear(); // 指定の大きさにスプライトを作り直す
+  sprite88_roi.createSprite(gSprw, gSprh);
+
+  while(!readRowFromBinary2(fn.c_str())){
+    delay(1);//1/50秒表示
+  }
+  
+  while(!drawMap()){
+    delay(1);//1/50秒表示
+  }
+
   return 0;
 }
 

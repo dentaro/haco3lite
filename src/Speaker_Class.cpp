@@ -1,9 +1,26 @@
 // Copyright (c) M5Stack. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+
+
 #include "Speaker_Class.hpp"
+#include "CRingBuffur.hpp"
+extern LGFX screen;//LGFXを継承
+extern LGFX_Sprite tft;
+extern size_t isEditMode;
+// extern size_t gEfectNo;
+// extern size_t targetChannelNo;
+// extern size_t tick;
+
+extern float effectVal;
 
 // #include "../M5Unified.hpp"
+// extern CRingBuffur ringbuf;
+
+// int normalized_value_prev;
+
+int8_t val8pre = 0;
+size_t Speaker_Class::speakerEffectNo = 0;//実体を定義
 
 #if !defined (SDL_h_)
 
@@ -24,6 +41,7 @@
 #endif
 
 #include <math.h>
+
 
 // namespace m5
 // {
@@ -52,7 +70,23 @@
 #define SAMPLE_RATE_TYPE int
 #endif
 
-  const uint8_t Speaker_Class::_default_tone_wav[16] = { 177, 219, 246, 255, 246, 219, 177, 128, 79, 37, 10, 1, 10, 37, 79, 128 }; // sin wave data
+const uint8_t Speaker_Class::_default_tone_wav[16] = { 177, 219, 246, 255, 246, 219, 177, 128, 79, 37, 10, 1, 10, 37, 79, 128 }; // サイン波
+// const uint8_t Speaker_Class::_default_tone_wav[16] = 
+// {255, 223, 191, 159, 127, 95, 63, 31, 0, 31, 63, 95, 127, 159, 191, 223};//三角波２回
+
+const uint8_t Speaker_Class::_tone_wav[8][16] = {
+  { 177, 219, 246, 255, 246, 219, 177, 128, 79, 37, 10, 1, 10, 37, 79, 128 }, // サイン波
+  // { 255, 255, 255, 255, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0 }, // 矩形波
+  { 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255}, // 長い矩形波
+  { 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0 }, // 短い矩形波
+  { 0, 32, 64, 96, 128, 160, 192, 224, 255, 223, 191, 159, 127, 95, 63, 31 }, // のこぎり波
+  {0, 21, 43, 64, 85, 107, 128, 149, 171, 192, 213, 235, 255, 235, 213, 192},// スムースのこぎり波
+  // {255, 223, 191, 159, 127, 95, 63, 31, 0, 31, 63, 95, 127, 159, 191, 223}//三角波２回
+  {255, 223, 191, 159, 127, 95, 63, 31, 0, 31, 63, 95, 127, 159, 191, 223},//三角波２回
+  {143, 247, 143, 247, 0, 123, 231, 99, 25, 95, 51, 214, 11, 237, 82, 160},//ノイズ
+  {0, 32, 64, 96, 128, 160, 192, 224, 255, 224, 192, 160, 128, 96, 64, 32}//三角波
+};
+
 
 #if defined (SDL_h_)
   esp_err_t Speaker_Class::_setup_i2s(void)
@@ -129,7 +163,7 @@
   }
 #endif
 
-  static void calcClockDiv(uint32_t* div_a, uint32_t* div_b, uint32_t* div_n, uint32_t baseClock, uint32_t targetFreq)
+  void calcClockDiv(uint32_t* div_a, uint32_t* div_b, uint32_t* div_n, uint32_t baseClock, uint32_t targetFreq)
   {
     if (baseClock <= targetFreq << 1)
     { /// Nは最小2のため、基準クロックが目標クロックの2倍より小さい場合は値を確定する;
@@ -182,6 +216,22 @@
     *div_b = save_b;
   }
 
+
+// void processEffect(int32_t* sound_buf32, size_t length) {
+//   for (size_t i = 0; i < std::min((size_t)64, length); ++i) {
+//     sound_buf32[i] = sound_buf32[i]*3;//振幅を4倍にして
+
+//     int8_t threshold = 100;//-127~127の範囲で切る
+//     if(sound_buf32[i]>threshold)
+//     sound_buf32[i] = threshold;
+//     else if(sound_buf32[i]<-threshold)
+//     sound_buf32[i] = -threshold;
+//   }
+// }
+
+
+
+
 /// レート変換係数 (実際に設定されるレートが浮動小数になる場合があるため、入力と出力の両方のサンプリングレートに係数を掛け、誤差を減らす);
   #define SAMPLERATE_MUL 256
 
@@ -230,6 +280,13 @@
 #endif
 
 #if defined ( CONFIG_IDF_TARGET_ESP32C3 ) || defined ( CONFIG_IDF_TARGET_ESP32S3 )
+    // モノラル設定時、同じデータを左右両方に送信する設定
+    if (!self->_cfg.stereo && !self->_cfg.use_dac && !self->_cfg.buzzer)
+    {
+      dev->tx_conf.tx_mono = 1;
+      dev->tx_conf.tx_chan_equal = 1;
+    }
+
     dev->tx_conf1.tx_bck_div_num = div_m - 1;
     dev->tx_clkm_conf.tx_clkm_div_num = div_n;
 
@@ -285,6 +342,7 @@
 
     int32_t dac_offset = std::min(INT16_MAX-255, self->_cfg.dac_zero_level << 8);
 
+    uint8_t buf_cnt = 0;
     bool flg_nodata = false;
 
     enum spk_i2s_state
@@ -307,59 +365,75 @@
 
     while (self->_task_running)
     {
-#if defined (SDL_h_)
+      
+
+      size_t data_length = 64;
+
+      
+
       if (flg_nodata)
       {
+#if defined (SDL_h_)
         SDL_Delay(1);
         if (0 == (self->_play_channel_bits.load())) { continue; }
-      }
 #else
-      if (flg_nodata)
-      {
-        if (self->_cfg.use_dac && dac_offset)
-        { // Gradual transition of DAC output to 0;
-          flg_i2s_started = spk_i2s_mute;
-          size_t idx = 0;
-          do
-          {
-            auto tmp = (uint32_t)((1.0f + cosf(idx * M_PI / dma_buf_len)) * (dac_offset >> 1));
-            sound_buf32[idx] = tmp | tmp << 16;
-          } while (++idx < dma_buf_len);
-          size_t write_bytes;
-          i2s_write(i2s_port, sound_buf32, dma_buf_len * sizeof(int32_t), &write_bytes, portMAX_DELAY);
-          if (self->_cfg.dac_zero_level == 0)
-          {
-            dac_offset = 0;
+        if (buf_cnt)
+        { // (no data... wait for new data)
+          --buf_cnt;
+          uint32_t wait_msec = 1 + (self->_cfg.dma_buf_len / (spk_sample_rate_x256 >> 17));
+          flg_nodata = (0 == ulTaskNotifyTake( pdFALSE, wait_msec ));
+        }
+
+        if (flg_nodata && 0 == buf_cnt)
+        {
+          if (self->_cfg.use_dac && dac_offset)
+          { // Gradual transition of DAC output to 0;
+            flg_i2s_started = spk_i2s_mute;
+            size_t idx = 0;
+            do
+            {
+              auto tmp = (uint32_t)((1.0f + cosf(idx * M_PI / dma_buf_len)) * (dac_offset >> 1));
+              sound_buf32[idx] = tmp | tmp << 16;
+            } while (++idx < dma_buf_len);
+            size_t write_bytes;
+            i2s_write(i2s_port, sound_buf32, dma_buf_len * sizeof(int32_t), &write_bytes, portMAX_DELAY);
+            if (self->_cfg.dac_zero_level == 0)
+            {
+              dac_offset = 0;
+            }
           }
-        }
 
-        // バッファ全てゼロになるまで出力を繰返す;
-        memset(sound_buf32, 0, dma_buf_len * sizeof(uint32_t));
-        // DAC使用時は長めに設定する
-        size_t retry = (self->_cfg.dma_buf_count << self->_cfg.use_dac) + 1;
-        while (!ulTaskNotifyTake( pdTRUE, 0 ) && --retry)
-        {
-          size_t write_bytes;
-          i2s_write(i2s_port, sound_buf32, dma_buf_len * sizeof(int32_t), &write_bytes, portMAX_DELAY);
-        }
+          // バッファ全てゼロになるまで出力を繰返す;
+          memset(sound_buf32, 0, dma_buf_len * sizeof(uint32_t));
+          // DAC使用時は長めに設定する
+          size_t retry = (self->_cfg.dma_buf_count << self->_cfg.use_dac) + 1;
+          while (!ulTaskNotifyTake( pdTRUE, 0 ) && --retry)
+          {
+            size_t write_bytes;
+            i2s_write(i2s_port, sound_buf32, dma_buf_len * sizeof(int32_t), &write_bytes, portMAX_DELAY);
+          }
 
-        if (!retry)
-        {
+          if (!retry)
+          {
 #if !defined (CONFIG_IDF_TARGET) || defined (CONFIG_IDF_TARGET_ESP32)
-          if (self->_cfg.use_dac)
-          {
-            flg_i2s_started = spk_i2s_stop;
-            i2s_stop(i2s_port);
-            i2s_set_dac_mode(i2s_dac_mode_t::I2S_DAC_CHANNEL_DISABLE);
+            if (self->_cfg.use_dac)
+            {
+              flg_i2s_started = spk_i2s_stop;
+              i2s_stop(i2s_port);
+              i2s_set_dac_mode(i2s_dac_mode_t::I2S_DAC_CHANNEL_DISABLE);
+            }
+#endif
+            // 新しいデータが届くまで待機;
+            ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
           }
-#endif
-          // 新しいデータが届くまで待機;
-          ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
         }
-      }
-      ulTaskNotifyTake( pdTRUE, 0 );
-
 #endif
+      }
+
+#if !defined (SDL_h_)
+      ulTaskNotifyTake( pdTRUE, 0 );
+#endif
+
 
     flg_nodata = true;
 
@@ -405,10 +479,14 @@
 
       float volume = magnification * (self->_master_volume * self->_master_volume);
 
+      // size_t data_length = 0;
+
+      //   // エフェクト処理
+      //   processEffect(sound_buf32, data_length);
+
       for (size_t ch = 0; ch < sound_channel_max; ++ch)
       {
         if (0 == (self->_play_channel_bits.load() & (1 << ch))) { continue; }
-        flg_nodata = false;
 
         auto ch_info = &(self->_ch_info[ch]);
         int ch_diff = ch_info->diff;
@@ -568,13 +646,21 @@ label_continue_sample:
               ch_diff += in_rate;
             } while (++idx < dma_buf_len && ch_diff < 0);
           }
+          if (data_length < idx) { data_length = idx; }
         } while (idx < dma_buf_len);
         ch_info->diff = ch_diff;
         ch_info->index = ch_index;
       }
 
+      flg_nodata = (data_length == 0);
+
       if (!flg_nodata)
       {
+        if (++buf_cnt >= self->_cfg.dma_buf_count)
+        {
+          buf_cnt = self->_cfg.dma_buf_count;
+        }
+
         if (self->_cfg.use_dac)
         {
   /// DAC出力は cfg.dac_zero_levelが0に設定されている場合、振幅のオフセットを動的に変更する。;
@@ -609,8 +695,8 @@ label_continue_sample:
               surplus[out_stereo] = v2;
             }
             sound_buf32[idx >> 1] = v1 << 16 | v2;
-          } while (++idx < dma_buf_len);
-          if (biasing) { dac_offset -= (dac_offset * dma_buf_len) >> 15; }
+          } while (++idx < data_length);
+          if (biasing) { dac_offset -= (dac_offset * data_length) >> 15; }
         }
         else if (self->_cfg.buzzer)
         {
@@ -634,7 +720,7 @@ label_continue_sample:
               }
             } while (bit >>= 1);
             sound_buf32[idx] = bitdata;
-          } while (++idx < dma_buf_len);
+          } while (++idx < data_length);
           surplus16 = flg_nodata ? 0x8000 : tmp;
         }
         else
@@ -651,14 +737,139 @@ label_continue_sample:
             else if (v2 > INT16_MAX) { v2 = INT16_MAX; }
 
             sound_buf32[idx >> 1] = v1 << 16 | (uint16_t)v2;
-          } while (++idx < dma_buf_len);
+          } while (++idx < data_length);
         }
 
 #if defined (SDL_h_)
-        SDL_QueueAudio(1, sound_buf32, dma_buf_len * sizeof(int16_t));
+        SDL_QueueAudio(1, sound_buf32, data_length * sizeof(int16_t));
 #else
         size_t write_bytes;
-        i2s_write(i2s_port, sound_buf32, dma_buf_len * sizeof(int16_t) << self->_cfg.buzzer, &write_bytes, portMAX_DELAY);
+        size_t data_bytes = data_length * sizeof(int16_t) << self->_cfg.buzzer;
+        
+        
+
+// const int size = 64;  // サイズは適切に変更してください
+// CRingBuffur ringBuffer;
+
+//     // サウンドバッファの処理
+//     for (int i = 0; i < size; i++) {
+//         // 入力信号を取得
+//         int32_t tmp = sound_buf32[i];
+
+//         // FUZZエフェクトを適用してリングバッファに書き込み
+//         ringBuffer.Write(fuzzProcessor.process(tmp));
+
+//         // リングバッファの更新
+//         ringBuffer.Update();
+
+//         // 入力信号の更新
+//         sound_buf32[i] = tmp;
+//     }
+
+if (speakerEffectNo == 1) {
+  
+    for (size_t i = 0; i < std::min((size_t)64, data_length); ++i) {
+
+        int32_t threshold = floor((dac_offset/16*INT32_MAX/16)*effectVal); // 波を任意の高さで切る
+
+        // 波形を dac_offset を中心にして上下対称にカット
+        if (sound_buf32[i] > (dac_offset + (threshold *5))){
+            sound_buf32[i] =  dac_offset + (threshold *5);
+        }
+
+        if (sound_buf32[i] < (dac_offset + (threshold *1))){
+            sound_buf32[i] =  dac_offset + (threshold *1);
+        }
+        
+        // if (sound_buf32[i] < (dac_offset + threshold)){
+        //     sound_buf32[i] =  dac_offset + threshold;
+        // }
+        
+    }
+}
+
+
+// i2s_write には元の sound_buf32 を渡します
+i2s_write(i2s_port, sound_buf32, data_bytes, &write_bytes, 0);
+
+if(isEditMode == TFT_SOUND_MODE){
+  int8_t display_buf[64];  // 表示用の配列を宣言
+  for (size_t i = 0; i < std::min((size_t)64, data_length); ++i) {
+    // 8ビットにスケーリング
+    int8_t val8 = sound_buf32[i] >> 24;  // 24ビット右シフト
+    // 絶対値を取り、0～128の範囲にスケーリング
+
+    val8 = map(abs(val8), 0, INT8_MAX, 0, 128);
+
+    // 音の波形を表示用の配列に保存
+    display_buf[i] = 64 - val8;
+    if (i > 0) {
+      tft.drawLine(i * 2, display_buf[i], (i - 1) * 2, display_buf[i - 1], TFT_WHITE);
+    }
+    val8pre = val8;  // 直前の値を更新
+  }
+}
+  
+// if (gEfectNo == 1) {
+//     for (size_t i = 0; i < std::min((size_t)64, data_length); ++i) {
+//         int32_t threshold = INT32_MAX / 8; // 波を任意の高さで切る
+
+//         // 波形を dac_offset を中心にして上下対称にカット
+
+//         if (sound_buf32[i] < (dac_offset - threshold)){
+//             sound_buf32[i] = dac_offset - threshold;
+//         }
+
+//         if (sound_buf32[i] > dac_offset + threshold){
+//             sound_buf32[i] = dac_offset + threshold;
+//         }
+        
+        
+
+//     }
+// }
+
+
+// // for (size_t i = 1; i < std::min((size_t)64, data_length); ++i) {
+// //     int normalized_value = map(sound_buf32[i], INT32_MIN, INT32_MAX, 0, 128);
+// //     tft.drawLine(i * 2, 64 - normalized_value, (i - 1) * 2, 64 - normalized_value_prev, TFT_WHITE);
+// //     normalized_value_prev = normalized_value;
+// // }
+
+//         for (size_t i = 1; i < std::min((size_t)64, data_length); ++i) {
+//           // tft.drawLine(i*2, 64 - sound_buf32[i]/4, (i-1)*2, 64 - sound_buf32[i-1]/4, TFT_WHITE);
+//           // tft.drawLine(i*2, 64 - sound_buf32[i]/4, (i-1)*2, 64 - sound_buf32[i-1]/4, TFT_WHITE);
+//           tft.drawLine(i*2, 64 - sound_buf32[i]>>24, (i-1)*2, 64 - sound_buf32[i-1]>>24, TFT_WHITE);
+//           // tft.drawLine(i*2, 64 - map(sound_buf32[i], INT32_MIN, INT32_MAX, 0, 128), 
+//           // (i-1)*2, 64 - map(sound_buf32[i-1], INT32_MIN, INT32_MAX, 0, 128), TFT_WHITE);
+//         }
+
+      i2s_write(i2s_port, sound_buf32, data_bytes, &write_bytes, 0);
+
+        
+
+        if (write_bytes < data_bytes) {
+          auto sb8 = (uint8_t*)sound_buf32;
+          i2s_write(i2s_port, &sb8[write_bytes], data_bytes - write_bytes, &write_bytes, portMAX_DELAY);
+          buf_cnt = self->_cfg.dma_buf_count;
+
+
+          // sound_buf32の中身をシリアルモニターに出力
+          // for (size_t i = 1; i < std::min((size_t)64, data_length); ++i) {
+          //   // tft.drawPixel(i*4,floor(sound_buf32[i]/21474830)+64,TFT_WHITE);
+            
+          //   // tft.drawLine(i*2, 64, i*2, 64 - floor(sound_buf32[i] >> 24), TFT_WHITE);
+
+          //   tft.drawLine(i*2, 64 - floor(sound_buf32[i] >> 24), (i-1)*2, 64 - floor(sound_buf32[i-1] >> 24), TFT_WHITE);
+            
+          //     // Serial.print(floor(sound_buf32[i]/21474830));
+          //     // Serial.print(" ");
+          // }
+          // Serial.println();
+
+          // tft.drawPixel(4,(sound_buf32[0]/2147483647)*60+64,TFT_WHITE);
+
+        }
 #endif
       }
     }
@@ -719,20 +930,28 @@ label_continue_sample:
   void Speaker_Class::end(void)
   {
     if (_cb_set_enabled) { _cb_set_enabled(_cb_set_enabled_args, false); }
-    if (!_task_running) { return; }
-    _task_running = false;
-    stop();
-    if (_task_handle)
+    if (_task_running)
     {
+      _task_running = false;
+      stop();
+      if (_task_handle)
+      {
 #if defined (SDL_h_)
-      SDL_WaitThread(_task_handle, nullptr);
-      _task_handle = nullptr;
+        SDL_WaitThread(_task_handle, nullptr);
+        _task_handle = nullptr;
 #else
-      xTaskNotifyGive(_task_handle);
-      do { vTaskDelay(1); } while (_task_handle);
+        xTaskNotifyGive(_task_handle);
+        do { vTaskDelay(1); } while (_task_handle);
 #endif
+      }
     }
     _play_channel_bits.store(0);
+    for (size_t ch = 0; ch < sound_channel_max; ++ch)
+    {
+      auto chinfo = &_ch_info[ch];
+      chinfo->wavinfo[0].clear();
+      chinfo->wavinfo[1].clear();
+    }
   }
 
   void Speaker_Class::stop(void)
@@ -795,29 +1014,20 @@ label_continue_sample:
     return true;
   }
 
-bool Speaker_Class::_play_raw(const void* data, size_t array_len, bool flg_16bit, bool flg_signed, float sample_rate, bool flg_stereo, uint32_t repeat_count, int channel, bool stop_current_sound, bool no_clear_index)
-{
-    // 初期化が行われていない場合やタスクが有効でない場合、戻る
+  bool Speaker_Class::_play_raw(const void* data, size_t array_len, bool flg_16bit, bool flg_signed, float sample_rate, bool flg_stereo, uint32_t repeat_count, int channel, bool stop_current_sound, bool no_clear_index)
+  {
     if (!begin() || (_task_handle == nullptr)) { return true; }
-
-    // 音声データの長さが0か、データが無効な場合、戻る
     if (array_len == 0 || data == nullptr) { return true; }
-
     size_t ch = (size_t)channel;
-
-    // チャンネルが最大値を超えている場合、有効なチャンネルを探す
     if (ch >= sound_channel_max)
     {
-        // 再生中のチャンネルを取得
-        size_t bits = _play_channel_bits.load();
-        for (ch = sound_channel_max - 1; ch < sound_channel_max; --ch)
-        {
-            if (0 == ((bits >> ch) & 1)) { break; }
-        }
-        if (ch >= sound_channel_max) { return false; }
+      size_t bits = _play_channel_bits.load();
+      for (ch = sound_channel_max - 1; ch < sound_channel_max; --ch)
+      {
+        if (0 == ((bits >> ch) & 1)) { break; }
+      }
+      if (ch >= sound_channel_max) { return false; }
     }
-
-    // 音声情報の設定
     wav_info_t info;
     info.data = data;
     info.length = array_len;
@@ -829,9 +1039,8 @@ bool Speaker_Class::_play_raw(const void* data, size_t array_len, bool flg_16bit
     info.stop_current = stop_current_sound;
     info.no_clear_index = no_clear_index;
 
-    // 次の音声情報を設定
     return _set_next_wav(ch, info);
-}
+  }
 
   bool Speaker_Class::playWav(const uint8_t* wav_data, size_t data_len, uint32_t repeat, int channel, bool stop_current_sound)
   {

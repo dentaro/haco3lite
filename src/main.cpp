@@ -12,6 +12,10 @@
 #include <LovyanGFX_DentaroUI.hpp>
 #include <map>
 
+
+
+#include <esp_now.h>
+
 /// 8bit unsigned 44.1kHz mono (exclude wav header)
 // extern const uint8_t wav_unsigned_8bit_click[46000];
 // extern const uint8_t wav_unsigned_8bit_click[16];
@@ -20,10 +24,33 @@
 // extern const uint8_t wav_with_header[230432];
 // extern const uint8_t wav_with_header[16];
 
-int tick = 0;
-int tickTime = 200;
+// File mfile;
+
+int pre_startRow = 0;
+bool drawWaitF = true;
+bool drawBinaryF = false;
+int gStartRow = 0;//intでないとLuaから渡せない
+uint8_t targetDispRow = 0;
+uint8_t writeDispRow = 0;
+
+int8_t diffRow = 0; // 前回の差分を保存しておく
+
+size_t buffAreaNo = 0;
+size_t gEfectNo = 0;
+float effectVal = 0.0f;
+size_t tick = 0;
+size_t instrument = 0;
+size_t targetChannelNo = 0;//描画編集する効果音番号を設定（sfx(n)のnで効果音番号を指定することで作った効果音がなる）
+size_t tickTime = 100;
+size_t tickSpeed = 5;
+size_t patternNo = 0;//0~63
+
+size_t _octave = 4;// (124 - ui.getPos().y)>>2 / 12 + 4;
+size_t _pitch = 0;
+size_t _volume = 0;
 
 int select_ui_id = TOUCH_BTN_MODE; // 0はプリセットパネル
+int preFlickBtnID = 20;
 
 static int menu_x = 2;
 static int menu_y = 20;
@@ -35,9 +62,11 @@ size_t toolNo = 0;
 #define KEYBOARD_DATA 32
 #define KEYBOARD_CLK  33
 
-#define TFT_RUN_MODE 0
-#define TFT_EDIT_MODE 1
-#define TFT_WIFI_MODE 2
+// #define TFT_RUN_MODE 0
+// #define TFT_EDIT_MODE 1
+// #define TFT_WIFI_MODE 2
+// #define TFT_SOUND_MODE 3
+// #define TFT_MUSICPLAY_MODE 4
 
 #define UI_NO_PRESET 0
 #define UI_NO_CUSTOM 1
@@ -48,6 +77,8 @@ size_t toolNo = 0;
 
 // Speaker_Class channels;
 // Speaker_Class* channels = new Speaker_Class();
+
+size_t patternID = 0;
 Channel* channels = new Channel();
 
 uint64_t frame = 0;
@@ -55,12 +86,11 @@ uint64_t frame = 0;
 // ワールドマップ情報を読み込むためのファイルクラス
 File wfr;
 
-int isEditMode;
+size_t isEditMode;
 bool firstBootF = true;
 bool difffileF = false;//前と違うファイルを開こうとしたときに立つフラグ
 
 std::deque<int> buttonState;//ボタンの個数未定
-// int buttonState[9];
 
 enum struct FileType {
   LUA,
@@ -91,6 +121,10 @@ enum struct FileType {
   { 255,107,169 },//14: ピンク
   { 255,202,165}//15: 桃色
   };
+
+
+String chatstr = "";
+// std::string  chatstr = "";
 
 //キーボード関連
 // Editor editor;
@@ -134,7 +168,7 @@ int8_t convUiId[25] = {
  5, 3, 6,-1,10,
  1, 9, 2,-1,-1,
  7, 4, 8,-1,11,
--1,-1,-1, 0,-1,
+11,-1,-1, 0,-1,
 };
 const uint8_t RGBValues[][3] PROGMEM = {//16bit用
   {0, 0, 0},     // 0: 黒色=なし
@@ -254,8 +288,8 @@ bool optionuiflag = false;
 int addUiNum[4];
 int allAddUiNum = 0;
 
-size_t addChannel[8];
-// int alladdChannel = 0;
+size_t addTones[8];
+// int alladdTones = 0;
 
 // bool downloadF = true;
 // bool isCardMounted = false; // SDカードがマウントされているかのフラグ
@@ -270,10 +304,18 @@ int ytileNo = 12909;
 LGFX_Sprite sprref;
 String oldKeys[BUF_PNG_NUM];
 
-int vol_value; //analog値を代入する変数を定義
-int statebtn_value; //analog値を代入する変数を定義
-int jsx_value; //analog値を代入する変数を定義
-int jsy_value; //analog値を代入する変数を定義
+
+uint16_t gethaco3Col(size_t haco3ColNo) {
+    uint16_t result = ((static_cast<uint16_t>(clist[haco3ColNo][0]) >> 3) << 11) |
+                      ((static_cast<uint16_t>(clist[haco3ColNo][1]) >> 2) << 5) |
+                      (static_cast<uint16_t>(clist[haco3ColNo][2]) >> 3);
+    return result;
+}
+
+// int vol_value; //analog値を代入する変数を定義
+// int statebtn_value; //analog値を代入する変数を定義
+// int jsx_value; //analog値を代入する変数を定義
+// int jsy_value; //analog値を代入する変数を定義
 // getSign関数をMapDictionaryクラス外に移動
 Vector2<int> getSign(int dirno) {
     if (dirno == -1) {
@@ -291,10 +333,10 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  tft.print("Last Packet Sent to: ");
-  tft.println(macStr);
-  tft.print("Last Packet Send Status: ");
-  tft.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  // tft.print("Last Packet Sent to: ");
+  // tft.println(macStr);
+  // tft.print("Last Packet Send Status: ");
+  // tft.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
 // 受信コールバック
@@ -304,12 +346,13 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   // tft.printf("Last Packet Recv from: %s\n", macStr);//MACアドレスを表示させる
-  tft.printf("Last Packet Recv Data(%d): ", data_len);
+
+  // tft.printf("Last Packet Recv Data(%d): ", data_len);
   for ( int i = 0 ; i < data_len ; i++ ) {
     msg[1] = data[i];
-    tft.print(msg[1]);
+    // tft.print(msg[1]);
   }
-  tft.println("");
+  // tft.println("");
 }
 
 Vector2<int> getKey2Sign(String _currentKey, String _targetKey) {
@@ -335,6 +378,128 @@ Vector2<int> getKey2Sign(String _currentKey, String _targetKey) {
     }
     
     return {0, 0}; // デフォルトの値
+}
+
+
+
+void showMusicInfo(){
+  
+    tft.setCursor(128,1);
+    if(patternNo<10)tft.print("0");
+    tft.print(patternNo);
+
+    tft.setCursor(148,1);
+    // tft.print("SP");
+    if(tickSpeed<10)tft.print("0");
+    tft.print(tickSpeed);
+    
+tft.drawLine(128, 9, 160, 9, gethaco3Col(6));
+
+    // tft.fillRect(128, 10, 32, 20, gethaco3Col(13));
+    tft.setCursor(128,11);
+    for(int n = 0;n<4;n++){tft.print(channels->patterns[patternNo][n]);}
+    tft.setCursor(128,21);
+    for(int n = 0;n<4;n++){tft.print(channels->patterns[patternNo][4+n]);}
+
+tft.drawLine(128,29, 160,29, gethaco3Col(6));
+
+    // tft.fillRect(138, 30, 32, 40, gethaco3Col(2));
+    tft.setCursor(138,31);
+    tft.print("IN");
+    tft.print(instrument);
+    tft.fillRect(128, 30, 10, 9, gethaco3Col(instrument+4));
+
+tft.drawLine(128, 39, 160, 39, gethaco3Col(6));
+
+    tft.setCursor(138,41);
+    tft.print(" ");
+    // tft.print(instrument);
+    // tft.fillRect(128, 40, 10, 9, gethaco3Col(instrument+8));
+
+tft.drawLine(128, 49, 160, 49, gethaco3Col(6));
+
+
+    tft.setCursor(138,51);
+    tft.print("CH");
+    tft.print(targetChannelNo);
+    tft.fillRect(128, 50, 10, 9, gethaco3Col(targetChannelNo));
+
+tft.drawLine(128, 59, 160,59, gethaco3Col(6));
+
+    tft.setCursor(138,61);
+    tft.print("EF");
+    tft.print(gEfectNo);
+    tft.fillRect(128, 60, 10, 9, gethaco3Col(gEfectNo));
+
+tft.drawLine(128, 69, 160,69, gethaco3Col(6));
+}
+
+
+void controlMusicVisual(){
+      for(int i = 0; i<32; i++)//32音書き換える
+      {
+        size_t efn = channels->notedata[targetChannelNo][i].effectNo;
+        size_t ins = channels->notedata[targetChannelNo][i].instrument;
+        size_t vol = channels->notedata[targetChannelNo][i].volume;
+        size_t oct = channels->notedata[targetChannelNo][i].octave;
+        size_t pit = channels->notedata[targetChannelNo][i].pitch;
+
+        if (ui.getEvent() != NO_EVENT)
+        {
+          if((ui.getPos().x-40)>>2==i){//押した1音だけの音色を変える
+            if(96>ui.getPos().y && 0<=ui.getPos().y){ //上の領域で
+              //音程を変える
+              pit = (96 - ui.getPos().y)>>2 % 12;
+              oct = 4;//floor((96 - ui.getPos().y)>>2 / 12)+3;
+              //音色を変える
+              ins = instrument;
+              //エフェクトを変える
+              efn = gEfectNo;
+            }
+            
+            if(128>ui.getPos().y && 96<=ui.getPos().y){//下の領域で
+              //音量を変える
+              vol = (124 - ui.getPos().y)>>2 % 8;
+            }
+            buffAreaNo = patternNo%2;
+            channels->resetTones(i, targetChannelNo, pit, oct, vol, ins, efn, buffAreaNo);//ピッチ,オクターブなどトーンを置き換える
+          }
+        }
+
+        if(tick == i){
+
+          tft.fillRect(i*4, 92-(pit + (oct-4)*12)*4, 4,4, gethaco3Col(10));
+          tft.fillRect(i*4, 124-(vol)*4, 4,4, gethaco3Col(10));
+
+        }else{
+          if(efn!=0)tft.drawLine(i*4, 92-(pit + (oct-4)*12)*4+3, i*4+3, 92-(pit + (oct-4)*12)*4+3, gethaco3Col(efn+8));
+
+          tft.fillRect(i*4, 92-(pit + (oct-4)*12)*4, 4,3, gethaco3Col(ins+4));
+          tft.fillRect(i*4, 124-(vol)*4, 4,4, gethaco3Col(3));
+        }
+
+      }
+}
+
+void showMusicVisual(){//操作できないタイプ
+    for(int i = 0; i<32; i++)//32音書き換える
+    {
+      size_t efn = channels->notedata[targetChannelNo][i].effectNo;
+      size_t ins = channels->notedata[targetChannelNo][i].instrument;
+      size_t vol = channels->notedata[targetChannelNo][i].volume;
+      size_t oct = channels->notedata[targetChannelNo][i].octave;
+      size_t pit = channels->notedata[targetChannelNo][i].pitch;
+
+      if(tick == i){
+        tft.fillRect(i*4, 92-(pit + (oct-4)*12)*4, 4,4, gethaco3Col(10));
+        tft.fillRect(i*4, 124-(vol)*4, 4,4, gethaco3Col(10));
+      }else{
+        if(efn!=0)tft.drawLine(i*4, 92-(pit + (oct-4)*12)*4+3, i*4+3, 92-(pit + (oct-4)*12)*4+3, gethaco3Col(efn+8));
+
+        tft.fillRect(i*4, 92-(pit + (oct-4)*12)*4, 4,3, gethaco3Col(ins+4));
+        tft.fillRect(i*4, 124-(vol)*4, 4,4, gethaco3Col(3));
+      }
+    }
 }
 
 Vector3<float> currentgpos = {0,0,0};;
@@ -414,27 +579,478 @@ void drawUI()
 
 }
 
-void musicTask(void *pvParameters) {
-    // Initialize your music-related setup here
 
-    // Your music-playing loop
-    while (true) {
-        channels->begin();
-        channels->setVolume(255);
-        channels->setAllChannelVolume(64);
-        channels->setChannelVolume(0, 64);//BGM
+bool createChannels()
+{
 
-        channels->note(0, tick);
-        vTaskDelay(tickTime);
-        tick++;
-        tick%=32;
-        channels->stop();
+String line;
+int j = 0;
+
+// パターンファイルを読み込む
+File fr = SPIFFS.open("/init/sound/patterns.csv", "r");
+if (!fr)
+{
+  Serial.println("Failed to open patterns.csv");
+  return true; // とりあえず進む
+}
+
+j = 0;
+while (fr.available()) // 64行だけ読み込む
+{
+  line = fr.readStringUntil('\n'); // 64行文のパターン（小節）があります
+  line.trim();                      // 空白を削除
+
+  if (!line.isEmpty())
+  {
+    int commaIndex = line.indexOf(',');
+    if (commaIndex != -1)
+    {
+      String val = line.substring(0, commaIndex);
+      addTones[0] = val.toInt();
+
+      for (int i = 1; i < 8; i++)
+      {
+        int nextCommaIndex = line.indexOf(',', commaIndex + 1);
+        if (nextCommaIndex != -1)
+        {
+          val = line.substring(commaIndex + 1, nextCommaIndex);
+          addTones[i] = val.toInt();
+          commaIndex = nextCommaIndex;
+        }
+        else
+        {
+          // Handle the case where there is no trailing comma
+          val = line.substring(commaIndex + 1);
+          addTones[i] = val.toInt();
+          break; // Exit the loop since we reached the end of the line
+        }
+      }
+
+      for(size_t n=0; n<CHANNEL_NUM; n++){
+        channels->setPatterns(j, n, addTones[n]);
+      }
+      
+      j++;
+    }
+  }
+}
+fr.close();
+  //すべてが終わったらtrueを返す
+  return true;
+}
+
+
+
+bool readTones(size_t _patternNo, size_t buffAreaNo)
+{
+
+String line;
+int j = 0;
+
+// トーンファイルを読み込む
+
+  for (int chno = 0; chno < CHANNEL_NUM; chno++)
+    {
+    j = 0;
+    patternID = channels->getPatternID( _patternNo, chno);
+    // File fr = SPIFFS.open("/init/sound/pattern/"+String(patternID+buffAreaNo)+".csv", "r");
+    File fr = SPIFFS.open("/init/sound/pattern/"+String(patternID)+".csv", "r");
+    if (!fr)
+    {
+      Serial.println("Failed to open tones.csv");
+      return true;//とりあえず進む
+    }
+    while (fr.available())
+    {
+      line = fr.readStringUntil('\n');
+      // line.trim(); // 空白を削除
+      if (!line.isEmpty())
+      {
+        int commaIndex = line.indexOf(',');
+        if (commaIndex != -1)
+        {
+          String val = line.substring(0, commaIndex);
+
+          for (int i = 0; i < 8; i++)
+          {
+            int nextCommaIndex = line.indexOf(',', commaIndex + 1);
+            if (nextCommaIndex != -1)
+            {
+              val = line.substring(commaIndex + 1, nextCommaIndex);
+              addTones[i] = val.toInt();
+              commaIndex = nextCommaIndex;
+            }
+          }
+
+          channels->setTones(
+              1,
+              addTones[0], addTones[1],
+              addTones[2], addTones[3],
+              addTones[4], addTones[5],
+              addTones[6], addTones[7], j, chno, buffAreaNo);
+          j++;
+        }
+      }
+    }
+    fr.close();
+  }
+
+  //すべてが終わったらtrueを返す
+  return true;
+}
+
+int gWx;
+int gWy;
+int gSpr8numX = 8;
+int gSpr8numY = 8;
+int gSprw = 8;
+int gSprh = 8;
+uint8_t sprno;
+uint8_t repeatnum;
+
+
+TaskHandle_t taskHandle[2];
+SemaphoreHandle_t syncSemaphore;
+// SemaphoreHandle_t rmapSemaphore;
+// SemaphoreHandle_t drawmapSemaphore;
+// SemaphoreHandle_t frameSemaphore;
+SemaphoreHandle_t nextFrameSemaphore;
+// std::vector<uint8_t> rowData;
+std::vector<std::vector<uint8_t>> rowData(16);
+
+// int preStartRow = 0;
+// bool isFirstRead = true;
+// int8_t diffRowNo = 0;
+
+// bool readRowFromBinary(const char *filename) {
+
+//   int _startRow = gWy;
+//   //初期化
+//   //グローバル変数でなく内部引数_startRowを使わないと取りこぼしが出てしまう
+//   std::vector<uint8_t> buffer;
+//   int bytesRead;
+//   int nnum = 0;
+
+//   if(isFirstRead){//最初だけ読み込み
+
+
+//     File file = SPIFFS.open(filename, "rb");
+
+//     if (!file) {
+//       Serial.println("Error opening file");
+//       return false;
+//     }
+//     // rowData.clear();
+//     std::vector<std::vector<uint8_t>> rowData(16, std::vector<uint8_t>());//初期化
+
+//     buffer.resize(8); // バッファのサイズを設定
+
+//     while (nnum < _startRow + DISP_SPR_H_NUM) {
+//       int bytesRead = file.read(buffer.data(), buffer.size());
+
+//       if (bytesRead == 0) {
+//         // If no bytes were read, it indicates the end of the file
+//         break;
+//       }
+
+//       for (size_t i = 0; i < bytesRead; ++i) {
+//         sprno = buffer[i] >> 5;
+//         repeatnum = buffer[i] & 0b00011111;
+
+//         if (_startRow > nnum) {
+//           // スタート番号が行ポインタよりも小さい場合はスルーする
+//         }
+//         else if (_startRow <= nnum) 
+//         {
+//           if (nnum == _startRow + DISP_SPR_H_NUM) {
+//             // 終わっていたらブレーク
+//             break;
+//           }
+          
+//               if (sprno == 0 && repeatnum == 0) {
+//                 repeatnum = 20;
+//               }
+
+//               rowData[nnum-_startRow].push_back(sprno);
+//               rowData[nnum-_startRow].push_back(repeatnum);
+//         }
+
+//         if (sprno == 3 && repeatnum == 31) {
+//           // 改行の時は行ポインタnnumの値を上げる
+//           ++nnum;
+//         }
+//       }
+//     }
+//     file.close();
+//   }
+//   else
+//   {
+
+//     // 2回目以降の処理（rowDataの中身を更新して描画する）
+//     if( diffRow != 0)
+//     {
+//       File file = SPIFFS.open(filename, "rb");
+
+//       if (!file) {
+//         Serial.println("Error opening file");
+//         return false;
+//       }
+//   //     rowData.clear();
+
+//       buffer.resize(8); // バッファのサイズを設定
+
+//   //     while (nnum < _startRow + DISP_SPR_H_NUM) {
+//   //     int bytesRead = file.read(buffer.data(), buffer.size());
+
+//   //     if (bytesRead == 0) {
+//   //       // If no bytes were read, it indicates the end of the file
+//   //       break;
+//   //     }
+
+//   //     for (size_t i = 0; i < bytesRead; ++i) {
+//   //       sprno = buffer[i] >> 5;
+//   //       repeatnum = buffer[i] & 0b00011111;
+
+//   //       if (_startRow > nnum) {
+//   //         // スタート番号が行ポインタよりも小さい場合はスルーする
+//   //       }
+//   //       else if (_startRow <= nnum) 
+//   //       {
+//   //         if (nnum == _startRow + DISP_SPR_H_NUM) {
+//   //           // 終わっていたらブレーク
+//   //           break;
+//   //         }
+          
+//   //             if (sprno == 0 && repeatnum == 0) {
+//   //               repeatnum = 20;
+//   //             }
+
+//   //             rowData[nnum-_startRow].push_back(sprno);
+//   //             rowData[nnum-_startRow].push_back(repeatnum);
+//   //       }
+
+//   //       if (sprno == 3 && repeatnum == 31) {
+//   //         // 改行の時は行ポインタnnumの値を上げる
+//   //         ++nnum;
+//   //       }
+//   //     }
+//   //   }
+
+//     file.close();
+
+
+//     }
+    
+//   }
+
+//   isFirstRead = false;
+//   diffRow =  preStartRow - _startRow; // 前回の差分を保存しておく
+//   preStartRow = _startRow;
+//   // gStartRow = _startRow;
+
+//   return true;
+// }
+
+bool drawMap() {
+  int ColCursor = 0;
+  size_t sprno;
+  size_t presprno = 0; // 初期値を設定
+  size_t repeatnum;
+
+  for (size_t k = 0; k < 16; k++) {
+    int j = k;
+    // int j = (k+16+targetDispRow)%16;
+    for (size_t i = 0; i < rowData[k].size(); i += 2) {
+      sprno = rowData[k][i];
+      repeatnum = rowData[k][i + 1];
+
+      if (sprno == 3 && repeatnum == 31) {
+        repeatnum = 0;
+        ColCursor = 0;
+      } else {
+        if (sprno == 7) {
+          if (gWy >= 220 || (gWx >= 49 && gWy <= 97)) {
+            sprno = 15;
+          }
+        }
+
+        int sx = sprno % gSpr8numX;
+        int sy = sprno / gSpr8numY;
+
+        for (int y = 0; y < 8; y++) {
+          for (int x = 0; x < 8; x++) {
+            uint8_t bit4;
+            int sprpos;
+            sprpos = (sy * 8 * PNG_SPRITE_WIDTH + sx * 8 + y * PNG_SPRITE_WIDTH + x) / 2;
+            bit4 = sprite64cnos_vector[sprpos];
+            if (x % 2 == 1) bit4 = (bit4 & 0b00001111);
+            if (x % 2 == 0) bit4 = (bit4 >> 4);
+            sprite88_roi.drawPixel(x, y, gethaco3Col(bit4));
+          }
+        }
+
+        for (int n = 0; n < repeatnum; n++) {
+          int sprx = ColCursor + n;
+          int displaysprx = sprx - gWx;
+
+          if (sprx >= gWx && sprx < gWx + DISP_SPR_W_NUM) {
+            mapArray[j][displaysprx] = sprno;
+
+            // 例: 描画対象が同じ場合は描画をスキップ
+            // if (presprno != sprno) {
+            //   sprite88_roi.setPivot(4.0, 4.0);
+            //   sprite88_roi.pushSprite(&tft, (ColCursor + n - gWx) * 8, j * 8);
+            // }
+
+            // sprite88_roi.setPivot(gSprw / 2.0, gSprh / 2.0);
+            // sprite88_roi.pushSprite(&tft, (ColCursor + n - gWx) * 8, j * 8);
+
+            sprite88_roi.setPivot(4.0, 4.0);
+            sprite88_roi.pushSprite(&tft, (ColCursor + n - gWx) * 8, j * 8);
+            // sprite88_roi.pushSprite(&tft, (ColCursor + n - gWx) << 3, j << 3);
+            
+            
+
+            // 海岸線の場合は描写を足す
+            if (displaysprx != 0) {
+              if (presprno == 0 && sprno != 0) { // 海から陸ならば
+                tft.fillRect((ColCursor + n - gWx - 1) * 8 + 7, j * 8, 1, 8, gethaco3Col(7));
+              }
+              if (presprno != 0 && sprno == 0) { // 陸から海ならば
+                tft.fillRect((ColCursor + n - gWx) * 8, j * 8, 1, 8, gethaco3Col(7));
+              }
+            }
+
+            if (j != 0) {
+              if (sprno != 0 && mapArray[j - 1][displaysprx] == 0) { // 陸の時上が海か
+                tft.fillRect((ColCursor + n - gWx) * 8, (j - 1) * 8 + 7, 8, 1, gethaco3Col(7));
+              }
+
+              if (sprno == 0 && mapArray[j - 1][displaysprx] != 0) { // 海の時上が陸か
+                tft.fillRect((ColCursor + n - gWx) * 8, j * 8, 8, 1, gethaco3Col(7));
+              }
+            }
+
+            presprno = sprno;
+          }
+        }
+
+        ColCursor += repeatnum;
+      }
+    }
+  }
+
+  return true;
+}
+
+
+std::vector<uint8_t> buffer;
+int bytesRead;
+
+bool readRowFromBinary2(const char *filename) {
+  int _startRow = gWy;
+  int nnum = 0;
+
+  File mfile = SPIFFS.open(filename, "rb");
+
+  if (!mfile) {
+    // Serial.println("Error opening file");
+    return false;
+  }
+
+  std::vector<std::vector<uint8_t>> new_rowData(16, std::vector<uint8_t>());
+
+  // buffer のクリアとリサイズ
+  buffer.clear();
+  buffer.resize(8);
+
+  while (nnum < _startRow + DISP_SPR_H_NUM) {
+    bytesRead = mfile.read(buffer.data(), buffer.size());
+
+    if (bytesRead == 0) {
+      break;
     }
 
-    // This code is unreachable, but the task should not exit
-    // while (true) {
-    //     vTaskDelay(portMAX_DELAY);
-    // }
+    for (int i = 0; i < bytesRead; i++) {
+      sprno = buffer[i] >> 5;
+      repeatnum = buffer[i] & 0b00011111;
+
+      if (nnum >= _startRow && nnum < _startRow + DISP_SPR_H_NUM) {
+        if (sprno == 0 && repeatnum == 0) {
+          repeatnum = 255;
+        }
+
+        new_rowData[nnum - _startRow].push_back(sprno);
+        new_rowData[nnum - _startRow].push_back(repeatnum);
+      }
+
+      if (sprno == 3 && repeatnum == 31) {
+        ++nnum;
+      }
+    }
+  }
+
+  mfile.close();
+
+  // rowData を new_rowData に入れ替える
+  rowData.swap(new_rowData);
+
+  mfile = File();  // 不要な行の削除
+
+  // drawWaitF = false;
+  return true;
+}
+
+void createChannelsTask(void *pvParameters) {
+    while (true) {
+            while (!createChannels()) {
+                delay(10);
+            }
+            readTones(patternNo, 0);
+            readTones(patternNo + 1, 1);
+            xSemaphoreGive(syncSemaphore);
+            delay(10);
+    }
+}
+
+void musicTask(void *pvParameters) {
+    while (true) {
+          // 何らかの条件が満たされるまで待機
+        if (xSemaphoreTake(syncSemaphore, portMAX_DELAY)) {
+            // 同期が取れたらここに入る
+            channels->begin();
+            channels->setVolume(200); // 0-255
+            channels->setAllChannelVolume(127);
+            channels->note(0, tick, patternNo);
+            channels->note(1, tick, patternNo);
+            channels->note(2, tick, patternNo);
+            channels->note(3, tick, patternNo);
+
+            channels->note(4, tick, patternNo);
+            channels->note(5, tick, patternNo);
+            channels->note(6, tick, patternNo);
+            channels->note(7, tick, patternNo);
+            channels->stop();
+            xSemaphoreGive(syncSemaphore);
+        }
+            
+            tick++;
+            tick %= TONE_NUM;
+
+            if (tick == 0) {
+                patternNo++;
+
+                if (patternNo >= PATTERN_NUM) {
+                    patternNo = 0;
+                }
+            }
+
+            // delay(1);
+        }
+
+        // 他の処理や適切な待機時間をここに追加
+        // delay(10);
+    
 }
 
 
@@ -496,12 +1112,7 @@ BaseGame* nextGameObject(String* _appfileName, int _gameState, String _mn)
 
 }
 
-// char *A;
-
 uint32_t preTime;
-// void setFileName(String s){
-//   appfileName = s;
-// }
 
 void runFileName(String s){
   
@@ -512,22 +1123,6 @@ void runFileName(String s){
 
 }
 
-// uint16_t createColor16(uint8_t r, uint8_t g, uint8_t b) {
-//     return static_cast<uint16_t>((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-// }
-
-// uint16_t gethaco3Col(size_t haco3ColNo) {
-//     // clist 配列から RGB 値を取得して createColor16 関数で 16 ビットの色を生成
-//     return createColor16(clist[haco3ColNo][0], clist[haco3ColNo][1], clist[haco3ColNo][2]);
-// }
-
-uint16_t gethaco3Col(size_t haco3ColNo) {
-    uint16_t result = ((static_cast<uint16_t>(clist[haco3ColNo][0]) >> 3) << 11) |
-                      ((static_cast<uint16_t>(clist[haco3ColNo][1]) >> 2) << 5) |
-                      (static_cast<uint16_t>(clist[haco3ColNo][2]) >> 3);
-    return result;
-}
-
 // タイマー
 hw_timer_t * timer = NULL;
 
@@ -535,15 +1130,18 @@ void readFile(fs::FS &fs, const char * path) {
    File file = fs.open(path);
    while(file.available()) file.read();
   //  while(file.available()) Serial.print(file.read());
+  file.close();
 }
 
 //ファイル書き込み
 void writeFile(fs::FS &fs, const char * path, const char * message){
     File file = fs.open(path, FILE_WRITE);
     if(!file){
+      file.close();
         return;
     }
     file.print(message);
+    file.close();
 }
 
 void deleteFile(fs::FS &fs, const char * path){
@@ -563,6 +1161,8 @@ void listDir(fs::FS &fs){
       Serial.print(file.size());
       file = root.openNextFile();
    }
+   root.close();
+   file.close();
 }
 
 vector<string> split(string& input, char delimiter)
@@ -583,8 +1183,8 @@ String rFirstAppName(String _wrfile){
   return _readStr;
 }
 
-#include <Arduino.h>
-#include <SPIFFS.h>
+// #include <Arduino.h>
+// #include <SPIFFS.h>
 
 void decompressData(const char *filename, std::vector<std::vector<uint8_t>> &output) {
 
@@ -738,7 +1338,7 @@ void getOpenConfig()
 
 }
 
-void setOpenConfig(String fileName, int _isEditMode) {
+void setOpenConfig(String fileName, size_t _isEditMode) {
   char numStr[64];//64文字まで
   sprintf(numStr, "%s,%d,", 
     fileName.c_str(), _isEditMode
@@ -777,22 +1377,24 @@ using namespace std;
 //     return result;
 // }
 
-void setTFTedit(int _iseditmode){
-
-  if(_iseditmode ==TFT_RUN_MODE){
+void setTFTedit(size_t _iseditmode){
     tft.setPsram( false );//DMA利用のためPSRAMは切る
     tft.createSprite( TFT_WIDTH, TFT_HEIGHT );//PSRAMを使わないギリギリ
     tft.startWrite();//CSアサート開始
-  }else if(_iseditmode == TFT_EDIT_MODE){
-    tft.setPsram( false );//DMA利用のためPSRAMは切る
-    tft.createSprite( TFT_WIDTH, TFT_HEIGHT );
-    tft.startWrite();//CSアサート開始
-  }
-  else if(_iseditmode == TFT_WIFI_MODE){
-    tft.setPsram( false );//DMA利用のためPSRAMは切る
-    tft.createSprite( TFT_WIDTH, TFT_HEIGHT );
-    tft.startWrite();//CSアサート開始
-  }
+  // if(_iseditmode ==TFT_RUN_MODE){
+  //   tft.setPsram( false );//DMA利用のためPSRAMは切る
+  //   tft.createSprite( TFT_WIDTH, TFT_HEIGHT );//PSRAMを使わないギリギリ
+  //   tft.startWrite();//CSアサート開始
+  // }else if(_iseditmode == TFT_EDIT_MODE){
+  //   tft.setPsram( false );//DMA利用のためPSRAMは切る
+  //   tft.createSprite( TFT_WIDTH, TFT_HEIGHT );
+  //   tft.startWrite();//CSアサート開始
+  // }
+  // else if(_iseditmode == TFT_WIFI_MODE){
+  //   tft.setPsram( false );//DMA利用のためPSRAMは切る
+  //   tft.createSprite( TFT_WIDTH, TFT_HEIGHT );
+  //   tft.startWrite();//CSアサート開始
+  // }
 }
 
 
@@ -852,62 +1454,13 @@ void createPanels(int _uiContainerID, int _read_ui_no)
   }
 }
 
-
 int btn(int btnno)
 {
   return buttonState[btnno];//ボタンの個数未定
 }
 
 
-
-void createChannels()
-{
-
-
-
-  File fr = SPIFFS.open("/init/sound/channels.csv", "r");
-  String line;
-  int j = 0;
-
-  while (fr.available())
-  {
-    
-    line = fr.readStringUntil('\n');
-    if (!line.isEmpty())
-    {
-      int commaIndex = line.indexOf(',');
-      if (commaIndex != -1)
-      {
-        String val = line.substring(0, commaIndex);
-        // addChannel[0] = val.toInt();
-
-        // if (addUiNum[0] == 0)
-        // {//0チャネルなら
-        for (int i = 0; i < 8; i++)
-        {
-          int nextCommaIndex = line.indexOf(',', commaIndex + 1);
-          if (nextCommaIndex != -1)
-          {
-            val = line.substring(commaIndex + 1, nextCommaIndex);
-            addChannel[i] = val.toInt();
-            commaIndex = nextCommaIndex;
-          }
-        }
-
-        channels->setChannel(
-            1, 
-            addChannel[0], addChannel[1],
-            addChannel[2], addChannel[3],
-            addChannel[4], addChannel[5],
-            addChannel[6], addChannel[7], j);
-        j++;
-      }
-    }
-  }
-  fr.close();
-}
-
-void reboot(String _fileName, int _isEditMode)
+void reboot(String _fileName, size_t _isEditMode)
 {
   setOpenConfig(_fileName, _isEditMode);
   // editor.setCursorConfig();//カーソルの位置を保存
@@ -915,7 +1468,7 @@ void reboot(String _fileName, int _isEditMode)
   ESP.restart();
 }
 
-void restart(String _fileName, int _isEditMode)
+void restart(String _fileName, size_t _isEditMode)
 {
   setOpenConfig(_fileName, _isEditMode);
   
@@ -938,10 +1491,57 @@ void restart(String _fileName, int _isEditMode)
   // tunes.resume();
 }
 
+// void broadchat(String message) {
 
-void broadchat() {
+//   // ファイルを書き込みモードで開く
+//   File file = SPIFFS.open("/init/chat/m.txt", FILE_WRITE);
+//   if (!file) {
+//     // ファイルが開けない場合は終了
+//     return;
+//   }
+
+//   // ファイルにメッセージを書き込む
+//   file.print(message);
+//   file.close(); // ファイルを閉じる
+
+//   // ファイルに書き込んだ内容をESP-NOWを使用して送信
+//   file = SPIFFS.open("/init/chat/m.txt", FILE_READ);
+//   if (!file) {
+//     // ファイルが開けない場合は終了
+//     return;
+//   }
+
+//   std::vector<uint8_t> data;
+//   while (file.available()) {
+//     char c = file.read();
+//     data.push_back(c);
+//     if (data.size() >= 150) {
+//       esp_err_t result = esp_now_send(slave.peer_addr, data.data(), data.size());
+//       data.clear(); // データを送信したらクリア
+//       if (result != ESP_OK) {
+//         // 送信に失敗した場合の処理を記述
+//         return;
+//       }
+//     }
+//   }
+
+//   file.close(); // ファイルを閉じる
+// }
+
+void broadchat(String message) {
+
+  // ファイルを書き込みモードで開く
+  File fp = SPIFFS.open("/init/chat/m.txt", FILE_WRITE);
+  if (!fp) {
+    // ファイルが開けない場合は終了
+    return;
+  }
+  // ファイルにメッセージを書き込む
+  fp.print(message);
+  fp.close(); // ファイルを閉じる
+
   if ("/init/chat/m.txt" == NULL) return;
-  File fp = SPIFFS.open("/init/chat/m.txt", FILE_READ); // SPIFFSからファイルを読み込み
+  fp = SPIFFS.open("/init/chat/m.txt", FILE_READ); // SPIFFSからファイルを読み込み
 
   if (!fp) {
     // editor.editorSetStatusMessage("Failed to open file");
@@ -956,6 +1556,7 @@ void broadchat() {
       esp_err_t result = esp_now_send(slave.peer_addr, data.data(), data.size());
       data.clear(); // データを送信したらクリア
       if (result != ESP_OK) {
+        // tft.println("");
         // editor.editorSetStatusMessage("Failed to send message");
         fp.close();
         return;
@@ -1021,68 +1622,6 @@ uint8_t readpixel(int i, int j)
         }
 }
 
-
-// static void tone_up(bool holding)
-// {
-//   static int tone_hz;
-//   if (!holding) { tone_hz = 100; }
-//   channels->tone(++tone_hz, 1000, 1);
-// }
-
-// static void bgm_play_stop(bool holding = false)
-// {
-  // if (holding) { return; }
-  // if (channels->isPlaying(0))
-  // {
-  //   channels->stop(0);
-  // }
-  // else
-  // {
-  //   channels->playWav(wav_with_header, sizeof(wav_with_header), ~0u, 0, true);
-  // }
-// }
-
-// static void m_volume_up(bool)
-// {
-//   int v = channels->getVolume() + 1;
-//   if (v < 256) { channels->setVolume(v); }
-// }
-
-// static void m_volume_down(bool)
-// {
-//   int v = channels->getVolume() - 1;
-//   if (v >= 0) { channels->setVolume(v); }
-// }
-
-// static void c_volume_up(bool)
-// {
-//   int v = channels->getChannelVolume(0) + 1;
-//   if (v < 256) { channels->setChannelVolume(0, v); }
-// }
-
-// static void c_volume_down(bool)
-// {
-//   int v = channels->getChannelVolume(0) - 1;
-//   if (v >= 0) { channels->setChannelVolume(0, v); }
-// }
-
-// struct menu_item_t
-// {
-//   const char* title;
-//   void (*func)(bool);
-// };
-
-// static const menu_item_t menus[] =
-// {
-//   { "tone"      , tone_up       },
-//   { "play/stop" , bgm_play_stop },
-//   { "ms vol u"  , m_volume_up   },
-//   { "ms vol d"  , m_volume_down },
-//   { "ch vol u"  , c_volume_up   },
-//   { "ch vol d"  , c_volume_down },
-// };
-// static constexpr const size_t menu_count = sizeof(menus) / sizeof(menus[0]);
-
 size_t cursor_index = 0;
 
 
@@ -1106,14 +1645,96 @@ void safeReboot(){
 
 // void musicTask(void *pvParameters);
 
+
 void setup()
 {
-  //音楽ループ用のタスク
-  // xTaskCreate(musicTask, "MusicTask", 1000, NULL, 1, NULL);
-  xTaskCreatePinnedToCore(musicTask, "MusicTask", 4096, NULL, 1, NULL, PRO_CPU_NUM);
 
-  // Start the scheduler
-  // vTaskStartScheduler();
+  
+    // 同期用セマフォの作成
+    syncSemaphore = xSemaphoreCreateBinary();
+    // rmapSemaphore = xSemaphoreCreateBinary();
+    // drawmapSemaphore = xSemaphoreCreateBinary();
+    // frameSemaphore = xSemaphoreCreateBinary();
+    nextFrameSemaphore = xSemaphoreCreateBinary();
+
+    // SPIFFSをマウント
+    if (!SPIFFS.begin(true)) {
+        Serial.println("An error occurred while mounting SPIFFS");
+        return;
+    }
+
+    if(isEditMode != TFT_WIFI_MODE){
+
+      // createChannelsTask タスクの作成（コア0で実行）
+      xTaskCreatePinnedToCore(
+        createChannelsTask,
+        "createChannelsTask",
+        2048,//~3000だと非力だけど動く//2048,4096なら動く//1024だと動かない
+        NULL,
+        1,
+        &taskHandle[0],  // タスクハンドルを取得
+        0//0だと落ちる
+      );
+
+      // musicTask タスクの作成（コア1で実行）
+      xTaskCreatePinnedToCore(
+        musicTask,
+        "musicTask",
+        2048,////1024だと動く//1500だと非力だけど動く//2048だと動く
+        NULL,
+        2,
+        &taskHandle[1],//NULL,// タスクハンドルを取得
+        0 // タスクを実行するコア（0または1）
+      );
+
+
+      // xTaskCreatePinnedToCore(
+      //   rmapTask,
+      //   "rmapTask",
+      //   3596,//
+      //   NULL,
+      //   3,
+      //   &taskHandle[2],  // タスクハンドルを取得
+      //   0
+      // );
+
+      // xTaskCreatePinnedToCore(
+      //   drawmapTask,
+      //   "drawmapTask",
+      //   8000,//3596,//
+      //   NULL,
+      //   4,
+      //   &taskHandle[3],  // タスクハンドルを取得
+      //   0
+      // );
+    }
+
+    // createChannelsが完了するまでmusicTaskをブロック
+    while (!createChannels()) {
+        delay(1);
+    }
+    buffAreaNo = (patternNo+1)%2;//一つ先のパターンを読み込んでおく
+    readTones(patternNo+1, buffAreaNo);
+    // //同期用セマフォを解放
+    xSemaphoreGive(syncSemaphore);
+
+  if(isEditMode == TFT_WIFI_MODE){//WIFIモードのときは音でない
+    // ESP-NOW初期化
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+
+    if (esp_now_init() == ESP_OK) {
+      tft.println("ESPNow Init Success");
+    } else {
+      tft.println("ESPNow Init Failed");
+      ESP.restart();
+    }
+  }
+  else{
+    //音楽ループ用のタスク
+    // xTaskCreate(musicTask, "MusicTask", 1000, NULL, 1, NULL);
+    // xTaskCreatePinnedToCore(musicTask, "MusicTask", 4096, NULL, 1, NULL, PRO_CPU_NUM);
+  }
 
   //------
   pinMode(OUTPIN_0, OUTPUT);
@@ -1251,18 +1872,20 @@ void setup()
     // adc1_config_channel_atten(ADC1_CHANNEL_7, ADC_ATTEN_DB_11);//34pin　ジョイスティックX
     // adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);//35pin　ジョイスティックY
     
-    // ui.begin( screen, 16, 0, 1);
+    // ui.begin( screen, 16, 2, 1);
     ui.begin( screen, 16, 2, 0);//タッチキャリブレーションをしない
     screen.fillScreen(TFT_BLACK);
     drawUI();//UIを表示
 
     ui.createUIs(2); // 最大2つのUIパネルを使用
-    // ui.deletePanels(0);
     createPanels(0, 0); // UIコンテナ0にID０（プリセットUI）を生成
-    // ui.deletePanels(1);//UIコンテナ1（カスタムUI）内のパネを削除して
     createPanels(1, select_ui_id); // UIコンテナ1（カスタムUI）にID１～を生成
 
-    createChannels();
+    ui.setSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_0, 0.3,0.5);
+    
+    //     while(!createChannels()){
+      
+    // };
 
     // ui.createSliders( 0, 160, 240, 160, 2, 1, XY_VAL, MULTI_EVENT );
     // ui.setBtnName( ui.getUiID("SLIDER_0"), "2DSlider0" );
@@ -1403,228 +2026,205 @@ void setup()
       tft.deleteSprite();
       delay(100);
     }
-    setTFTedit(TFT_WIFI_MODE);
+    setTFTedit(TFT_RUN_MODE);
+    ui.begin( screen, 16, 2, 0);//タッチキャリブレーションをしない
+    screen.fillScreen(TFT_BLACK);
+    drawUI();//UIを表示
 
-    ui.begin( screen, 16, 0, 1);
+    ui.createUIs(2); // 最大2つのUIパネルを使用
+    createPanels(0, 0); // UIコンテナ0にID０（プリセットUI）を生成
+    createPanels(1, select_ui_id); // UIコンテナ1（カスタムUI）にID１～を生成
+    //     while(!createChannels()){};
+
+    sprite88_0.setPsram(false );
+    sprite88_0.setColorDepth(16);//子スプライトの色深度
+    sprite88_0.createSprite(8, 8);//ゲーム画面用スプライトメモリ確保
+
+    sprite64.setPsram(false );
+    sprite64.setColorDepth(16);//子スプライトの色深度
+    sprite64.createSprite(PNG_SPRITE_WIDTH, PNG_SPRITE_HEIGHT);//ゲーム画面用スプライトメモリ確保//wroomだと64*128だとメモリオーバーしちゃう問題を色番号配列にして回避した
+
+    sprite64.drawPngFile(SPIFFS, "/init/initspr.png", 0, 0);//一時展開する
+
+    sprite64cnos_vector.clear();//初期化処理
+
+    for(int y = 0; y < PNG_SPRITE_HEIGHT; y++) {
+        for(int x = 0; x < PNG_SPRITE_WIDTH; x++) {
+          if(x%2 == 0){
+            uint8_t pixel_data = (readpixel(x, y) << 4) | (readpixel(x + 1, y) & 0b00001111);
+            sprite64cnos_vector.push_back(pixel_data);
+          }
+        }
+    }
+
+    //破棄
+    sprite64.deleteSprite();
+
+    sprite88_roi.setPsram(false );
+    sprite88_roi.setColorDepth(16);//子スプライトの色深度
+    sprite88_roi.createSprite(8, 8);//ゲーム画面用スプライトメモリ確保
+
+    sprite11_roi.setPsram(false );
+    sprite11_roi.setColorDepth(16);//子スプライトの色深度
+    sprite11_roi.createSprite(1, 1);//ゲーム画面用スプライトメモリ確保
 
     if(firstBootF == true)
     {
-      tft.setTextSize(1);//サイズ
-      tft.setFont(&lgfxJapanGothicP_8);//日本語可
-      tft.setCursor(0, 0);//位置
-      tft.setTextWrap(true);
-      tft.println("BOOT:WIFI_MODE");
-
-      if (SPIFFS.exists(appfileName)) {
-        File file = SPIFFS.open(appfileName, FILE_READ);
-        if (!file) {
-          Serial.println("ファイルを開けませんでした");
-          return;
-        }
-        // ファイルからデータを読み込み、シリアルモニターに出力
-        while (file.available()) {
-          Serial.write(file.read());
-        }
-        // ファイルを閉じる
-        file.close();
-      }
-
-      // createPanels();//外部ファイルから、タッチボタンを作る処理
-
       game = nextGameObject(&appfileName, gameState, mapFileName);//ホームゲームを立ち上げる（オブジェクト生成している）
       game->init();//（オブジェクト生成している）
-      // tunes.init();//（オブジェクト生成している）
-
-      frame=0;
-
-      //editor.initEditor(tft, EDITOR_ROWS, EDITOR_COLS);
-      // editor.initEditor(tft);
-      // editor.readFile(SPIFFS, "/init/chat/m.txt");
-      // editor.editorOpen(SPIFFS, "/init/chat/m.txt");
-      // editor.editorSetStatusMessage("Press ESCAPE to save file");
-
-      // ESP-NOW初期化
-      WiFi.mode(WIFI_STA);
-      WiFi.disconnect();
-
-      if (esp_now_init() == ESP_OK) {
-        tft.println("ESPNow Init Success");
-      } else {
-        tft.println("ESPNow Init Failed");
-        ESP.restart();
-      }
-
-      // マルチキャスト用Slave登録
-      memset(&slave, 0, sizeof(slave));
-      for (int i = 0; i < 6; ++i) {
-        slave.peer_addr[i] = (uint8_t)0xff;
-      }
-      
-      esp_err_t addStatus = esp_now_add_peer(&slave);
-      if (addStatus == ESP_OK) {
-        // Pair success
-        tft.println("Pair success");
-      }
-      // ESP-NOWコールバック登録
-      esp_now_register_send_cb(OnDataSent);
-      esp_now_register_recv_cb(OnDataRecv);
-
     }
 
+    frame=0;
+
+    // editor.initEditor(tft, EDITOR_ROWS, EDITOR_COLS);
+    // editor.initEditor(tft);
+    // editor.readFile(SPIFFS, "/init/chat/m.txt");
+    // editor.editorOpen(SPIFFS, "/init/chat/m.txt");
+    // editor.editorSetStatusMessage("Press ESCAPE to save file");
+
+    // ESP-NOW初期化
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+
+    if (esp_now_init() == ESP_OK) {
+      tft.println("ESPNow Init Success");
+    } else {
+      tft.println("ESPNow Init Failed");
+      ESP.restart();
+    }
+
+    // マルチキャスト用Slave登録
+    memset(&slave, 0, sizeof(slave));
+    for (int i = 0; i < 6; ++i) {
+      slave.peer_addr[i] = (uint8_t)0xff;
+    }
+    
+    esp_err_t addStatus = esp_now_add_peer(&slave);
+    if (addStatus == ESP_OK) {
+      // Pair success
+      tft.println("Pair success");
+    }
+    // ESP-NOWコールバック登録
+    esp_now_register_send_cb(OnDataSent);
+    esp_now_register_recv_cb(OnDataRecv);
+
+    
+  }else if(isEditMode == TFT_SOUND_MODE){
+
+    tft.setFont(&fonts::Font0);
+    tft.setTextSize(1);//サイズ
+
+    if(firstBootF == false){
+      tft.deleteSprite();
+      delay(100);
+    }
+
+    setTFTedit(TFT_SOUND_MODE);
+
+    ui.begin( screen, 16, 2, 0);//タッチキャリブレーションをしない
+    screen.fillScreen(TFT_BLACK);
+
+    // drawUI();//UIを表示
+
+    ui.createUIs(2); // 最大2つのUIパネルを使用
+    // ui.deletePanels(0);
+    createPanels(0, 0); // UIコンテナ0にID０（プリセットUI）を生成
+    // createPanels(1, select_ui_id); // UIコンテナ1（カスタムUI）にID１～を生成
+    createPanels(1, TOUCH_SLIDER_MODE);
+
+    frame=0;
   }
+  else if(isEditMode == TFT_MUSICPLAY_MODE)
+  {
+    if(firstBootF == false){
+      tft.deleteSprite();
+      delay(100);
+    }
+
+    setTFTedit(TFT_RUN_MODE);
+
+    ui.begin( screen, 16, 2, 0);//タッチキャリブレーションをしない
+    screen.fillScreen(TFT_BLACK);
+    drawUI();//UIを表示
+
+    ui.createUIs(2); // 最大2つのUIパネルを使用
+    createPanels(0, 0); // UIコンテナ0にID０（プリセットUI）を生成
+    createPanels(1, select_ui_id); // UIコンテナ1（カスタムUI）にID１～を生成
+
+    ui.setSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_0, 0.3,0.5);
+
+    sprite64.setPsram(false );
+    sprite64.setColorDepth(16);//子スプライトの色深度
+    sprite64.createSprite(PNG_SPRITE_WIDTH, PNG_SPRITE_HEIGHT);//ゲーム画面用スプライトメモリ確保//wroomだと64*128だとメモリオーバーしちゃう問題を色番号配列にして回避した
+
+    sprite64.drawPngFile(SPIFFS, "/init/initspr.png", 0, 0);//一時展開する
+    sprite64cnos_vector.clear();//初期化処理
+
+    for(int y = 0; y < PNG_SPRITE_HEIGHT; y++) {
+        for(int x = 0; x < PNG_SPRITE_WIDTH; x++) {
+          if(x%2 == 0){
+            uint8_t pixel_data = (readpixel(x, y) << 4) | (readpixel(x + 1, y) & 0b00001111);
+            sprite64cnos_vector.push_back(pixel_data);
+          }
+        }
+    }
+
+    //破棄
+    sprite64.deleteSprite();
+
+    sprite88_roi.setPsram(false );
+    sprite88_roi.setColorDepth(16);//子スプライトの色深度
+    sprite88_roi.createSprite(8, 8);//ゲーム画面用スプライトメモリ確保
+
+    sprite11_roi.setPsram(false );
+    sprite11_roi.setColorDepth(16);//子スプライトの色深度
+    sprite11_roi.createSprite(1, 1);//ゲーム画面用スプライトメモリ確保
+
+    if(firstBootF == true)
+    {
+      game = nextGameObject(&appfileName, gameState, mapFileName);//ホームゲームを立ち上げる（オブジェクト生成している）
+      game->init();//（オブジェクト生成している）
+    }
+    frame=0;
+  }
+
   savedAppfileName = appfileName;//起動したゲームのパスを取得しておく
   firstBootF = false;
 
-  // screen.setCursor(0,0);
-  // screen.fillScreen(TFT_RED);
-  // screen.setTextSize(1);//サイズ
-  // screen.setFont(&lgfxJapanGothicP_8);//日本語可
-  // // screen.setTextWrap(true);
-  // // screen.setClipRect(160, 0, 60, 128);
-  // screen.println("HELP");
-  // screen.println("qで音量をあげる");
-  // screen.println("aで音量をさげる");
-
-  
-  // begin(cfg);
-
-  // { /// I2S Custom configurations are available if you desire.
-  //   auto spk_cfg = channels->config();
-
-  //   if (spk_cfg.use_dac || spk_cfg.buzzer)
-  //   {
-  //   /// Increasing the sample_rate will improve the sound quality instead of increasing the CPU load.
-  //     spk_cfg.sample_rate = 64000; // default:64000 (64kHz)  e.g. 48000 , 50000 , 80000 , 96000 , 100000 , 128000 , 144000 , 192000 , 200000
-  //   }
-
-  //   channels->config(spk_cfg);
-  // }
-
-  
-  
-  // while(tick != 32)
-  // {
-  //   channels->begin();
-  //   channels->setVolume(255);
-  //   channels->setAllChannelVolume(64);
-  //   channels->setChannelVolume(0, 64);
-  //   channels->setChannelVolume(1, 64);
-  //   channels->setChannelVolume(2, 64);
-  //   channels->setChannelVolume(3, 64);
-
-  //   channels->note(1,tick);
-  //   delay(tickTime);
-  //   tick++;
-  //   channels->stop();
-  // }
-
-  
-
-  // delay(100);
-
-  // /// play mi Hz tone sound, 100 msec. 
-  // channels->tone(1000, 100,2);
-
-  // delay(100);
-
-  
-  // // /// stop output sound.
-  // channels->stop();
-
-  // delay(500);
-
-  // // channels->playRaw( wav_unsigned_8bit_click, sizeof(wav_unsigned_8bit_click) / sizeof(wav_unsigned_8bit_click[0]), 44100, false);
-
-  // // while (channels->isPlaying()) { delay(1); } // Wait for the output to finish.
-
-  // // delay(500);
-
-  // // The 2nd argument of the tone function can be used to specify the output time (milliseconds).
-  // channels->tone(440, 1000);  // 440Hz sound  output for 1 seconds.
-
-  // while (channels->isPlaying()) { delay(1); } // Wait for the output to finish.
-
-  // delay(500);
-
-  // channels->setVolume(0);
-  // channels->tone(880);  // tone 880Hz sound output. (Keeps output until it stops.)
-  // for (int i = 0; i <= 151; i++)
-  // {
-  //   channels->setVolume(i); // Volume can be changed during sound output.
-  //   delay(25);
-  // }
-  // channels->stop();  // stop sound output.
-
-  // delay(500);
-
-
-  
-
-  // //---------------------------------------------
-
-  // The tone function can specify a virtual channel number as its 3rd argument.
-  // If the tone function is used on the same channel number, the previous tone will be stopped and a new tone will be played.
-  // channels->tone(261.626, 1000, 1);  // tone 261.626Hz  output for 1 seconds, use channel 1
-  // delay(200);
-  // channels->tone(329.628, 1000, 1);  // tone 329.628Hz  output for 1 seconds, use channel 1
-  // delay(200);
-  // channels->tone(391.995, 1000, 1);  // tone 391.995Hz  output for 1 seconds, use channel 1
-
-  // while (channels->isPlaying()) { delay(1); } // Wait for the output to finish.
-
-  // delay(500);
-
-  // // By specifying different channels, multiple sounds can be output simultaneously.
-  // channels->tone(261.626, 1000, 1);  // tone 261.626Hz  output for 1 seconds, use channel 1
-  // delay(200);
-  // channels->tone(329.628, 1000, 2);  // tone 329.628Hz  output for 1 seconds, use channel 2
-  // delay(200);
-  // channels->tone(391.995, 1000, 3);  // tone 391.995Hz  output for 1 seconds, use channel 3
-
-  // while (channels->isPlaying()) { delay(1); } // Wait for the output to finish.
-
-  // delay(500);
-
-  // // tone data (8bit unsigned wav)
-  // const uint8_t wavdata[64] = { 132,138,143,154,151,139,138,140,144,147,147,147,151,159,184,194,203,222,228,227,210,202,197,181,172,169,177,178,172,151,141,131,107,96,87,77,73,66,42,28,17,10,15,25,55,68,76,82,80,74,61,66,79,107,109,103,81,73,86,94,99,112,121,129 };
-
-  // /// Using a single wave of data, you can change the tone.
-  // channels->tone(261.626, 1000, 1, true, wavdata, sizeof(wavdata));
-  // delay(200);
-  // channels->tone(329.628, 1000, 2, true, wavdata, sizeof(wavdata));
-  // delay(200);
-  // channels->tone(391.995, 1000, 3, true, wavdata, sizeof(wavdata));
-  // delay(200);
-
-  // while (channels->isPlaying()) { delay(1); } // Wait for the output to finish.
-
-  // bgm_play_stop(true);
-
-  // delete channels;//スピーカーオブジェクトを削除
-
-  //キー取得
-  //luaプログラムがバグで起動不能になった場合、ESCを押しながらリセットをかけると、メニューに戻れるようにする
-  //ESCボタンで強制終了
-
-  // if (keyboard.available()) {
-  //   keychar = keyboard.read();
-  //   if (keychar == PS2_ESC) {
-  //     safeReboot();
-  //   }
-  // }
-  
+  xSemaphoreGive(nextFrameSemaphore);
 }
 
+String c = "";
 
 void loop()
 {
-  
+
+      
+
+  // 次のフレーム開始を許可
+  // drawWaitF = true;
+  // while(!drawWaitF)
+  // {
+  //   if (xSemaphoreTake(nextFrameSemaphore, portMAX_DELAY))
+  //   {
+  //     delay(1);
+  //   }
+  //   delay(1);
+  // }
+
+  // delay(100);
+
   // ui.setConstantGetF(true);//trueだとタッチポイントのボタンIDを連続取得するモード
-  ui.update(screen); // タッチイベントを取るので、LGFXが基底クラスでないといけない
+  // ui.update(screen); // タッチイベントを取るので、LGFXが基底クラスでないといけない
+  ui.update2(screen); // タッチイベントを取るので、LGFXが基底クラスでないといけない
   // pressedBtnID = 3;
 
   if (ui.getEvent() != NO_EVENT)
   {
+    uint16_t clist2[3] = {TFT_RED, TFT_GREEN, TFT_BLUE};
+    uint8_t cNo = 0;
+    uint8_t addx = 50;
+    uint8_t addy = 16;
 
     // Serial.println(select_ui_id);
 
@@ -1632,11 +2232,44 @@ void loop()
     // if(select_ui_id == 0){//ボタンIDの取得
     if (ui.getEvent() != NO_EVENT)
     { // 何かイベントがあれば
-
       if (ui.getEvent() == TOUCH)
       { // TOUCHの時だけ
-      }
+        if (ui.getTouchBtnID() == 39)//ret
+        {
+          pressedBtnID = 11;
+        }
 
+        if (select_ui_id == TOUCH_FLICK_MODE)
+        {
+          if (ui.getTouchBtnID() == 34){ui.flickShift();}
+          else if (ui.getTouchBtnID() == 35){ui.kanaShift();}
+          else if (ui.getTouchBtnID() == 36){
+            // chatstr = ui.delChar(chatstr);
+            String stdStr = ui.delChar(chatstr);
+            chatstr = stdStr;
+            // Serial.println(chatstr);        
+          }
+          else if(ui.getTouchBtnID() >= 20 && ui.getTouchBtnID() < 32)
+          {
+            if(preFlickBtnID != ui.getTouchBtnID()){
+              ui.kanaShift(0);//ボタンを切り替えたら濁点にならないように０リセット
+              // Serial.print(ui.getTouchBtnID());
+              // Serial.println(preFlickBtnID);
+            }
+          }
+
+          if (ui.getTouchBtnID() >= PRESET_BTN_NUM && ui.getTouchBtnID() < PRESET_BTN_NUM+12)
+          {
+            preFlickBtnID = ui.getTouchBtnID();//フリックボタンの値を保存しておく
+            ui.readFlickDataline(PRESET_BTN_NUM, UI_NO_CUSTOM, preFlickBtnID);
+          }
+          else if (ui.getTouchBtnID() >= PRESET_BTN_NUM+12 && ui.getTouchBtnID() < PRESET_BTN_NUM+20)
+          {
+            ui.readFlickDataline(PRESET_BTN_NUM, UI_NO_CUSTOM, preFlickBtnID);//シフトの時は直前に押したフリックボタンの値を使う
+          }
+          ui.drawFlicks(UI_NO_CUSTOM, screen);
+        } 
+      }
       if (ui.getEvent() == MOVE)
       {
         if (ui.getTouchBtnID() == -1)
@@ -1645,44 +2278,65 @@ void loop()
         }
         else
         {
-          // if(ui.getTouchBtnID()>=32 && ui.getTouchBtnID()<52)
-          // {
-          //   if(select_ui_id == TOUCH_BTN_MODE)
-          //     {
-          //       pressedBtnID = convUiId[ui.getTouchBtnID()-32];//convUiIdを使って実際押されたボタンとゲームに送るボタン番号をマップ変換する(最初の25個だけ
-          //     }
-          // }else{
-          // pressedBtnID = ui.getTouchBtnID();//ボタンIDを取得
-          // }
-          
           if (select_ui_id == TOUCH_SLIDER_MODE)
           {
             pressedBtnID = ui.getTouchBtnID(); // ボタンIDを取得
           }
+
+          if (select_ui_id == TOUCH_FLICK_MODE)
+          {
+
+            //show touchEvent
+            // tft.fillRect(120-20, addy+40-20, 60, 60, TFT_BLACK);//塗りなおし
+            // tft.fillRect(120, addy+40, 20, 20, TFT_GREEN);//中心
+
+            // screen.drawLine(
+            //   ui.getStartPos().x,
+            //   ui.getStartPos().y,
+            //   ui.getPos().x,
+            //   ui.getPos().y,
+            //   TFT_RED);
+
+            screen.drawLine(0, 158, 240, 158, TFT_BLACK);
+
+            screen.drawLine((ui.getVecNo())%5 * 48, 158, (ui.getVecNo())%5 * 48+48, 158, TFT_ORANGE);
+
+            Serial.println(ui.getVecNo());
+          }
+
         }
       }
 
       // スライダ値の取得
       if (select_ui_id == TOUCH_SLIDER_MODE)
       {
-
+        
         ui.drawSliders(UI_NO_CUSTOM, screen); // drawしながら取得している
+        if(ui.getSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_0, X_VAL)>=0&&ui.getSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_0, X_VAL)<=1){
 
-        if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, X_VAL) > 0.6)
-        {
-          pressedBtnID = 2;
-        }
-        if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, X_VAL) < 0.4)
-        {
-          pressedBtnID = 1;
-        }
-        if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, Y_VAL) > 0.6)
-        {
-          pressedBtnID = 4;
-        }
-        if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, Y_VAL) < 0.4)
-        {
-          pressedBtnID = 3;
+          // Serial.println("A:"+String(ui.getSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_0, X_VAL)));
+          // Serial.println("B:"+String(ui.getSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_1, X_VAL)));
+
+          tickSpeed = floor(ui.getSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_0, X_VAL)*16);
+          tickTime = tickSpeed*25 + 10;
+          effectVal = ui.getSliderVal(UI_NO_CUSTOM, 1, SLIDER_NO_1, X_VAL)*16;
+
+          // if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, X_VAL) > 0.6)
+          // {
+          //   pressedBtnID = 2;
+          // }
+          // if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, X_VAL) < 0.4)
+          // {
+          //   pressedBtnID = 1;
+          // }
+          // if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, Y_VAL) > 0.6)
+          // {
+          //   pressedBtnID = 4;
+          // }
+          // if (ui.getSliderVal(UI_NO_CUSTOM, 0, SLIDER_NO_0, Y_VAL) < 0.4)
+          // {
+          //   pressedBtnID = 3;
+          // }
         }
       }
       
@@ -1693,6 +2347,7 @@ void loop()
       
       if (select_ui_id == TOUCH_BTN_MODE)
       {
+        // ui.drawSliders(UI_NO_CUSTOM, screen); // drawしながら取得している
         
         if (ui.getTouchBtnID() >= PRESET_BTN_NUM && ui.getTouchBtnID() < PRESET_BTN_NUM+25)
         {
@@ -1724,32 +2379,141 @@ void loop()
         }
         else if (select_ui_id == TOUCH_FLICK_MODE)
         {
-          if (ui.getTouchBtnID() == 34)
-          {
-            ui.flickShift();
+          if (ui.getTouchBtnID()==38){//clr
+            chatstr = "";
+            Serial.println("");
           }
-          if (ui.getTouchBtnID() >= PRESET_BTN_NUM && ui.getTouchBtnID() < PRESET_BTN_NUM+22)
+          
+          // if (ui.getTouchBtnID() >= PRESET_BTN_NUM && ui.getTouchBtnID() < PRESET_BTN_NUM+12)
+          // {
+          //   preFlickBtnID = ui.getTouchBtnID();//フリックボタンの値を保存しておく
+          //   ui.readFlickDataline(PRESET_BTN_NUM, UI_NO_CUSTOM, preFlickBtnID);
+          // }
+          // else if (ui.getTouchBtnID() >= PRESET_BTN_NUM+12 && ui.getTouchBtnID() < PRESET_BTN_NUM+20)
+          // {
+          //   ui.readFlickDataline(PRESET_BTN_NUM, UI_NO_CUSTOM, preFlickBtnID);//シフトの時は直前に押したフリックボタンの値を使う
+          // }
+          // else
+
+          if (ui.getTouchBtnID() >= PRESET_BTN_NUM && ui.getTouchBtnID() < PRESET_BTN_NUM+12)
           {
-            ui.readFlickDataline(UI_NO_CUSTOM, ui.getTouchBtnID());
+            // c = ui.getFlickChar(0);
+            c = ui.getFlickChar(ui.getVecNo());
+
+            // if( ui.getEventBit(RIGHT_FLICK))c = ui.getFlickChar(4);
+            // if( ui.getEventBit(U_R_FLICK) ) c = ui.getFlickChar(3);
+            // if( ui.getEventBit(UP_FLICK) )  c = ui.getFlickChar(2);
+            // if( ui.getEventBit(L_U_FLICK) ) c = ui.getFlickChar(1);
+            // if( ui.getEventBit(LEFT_FLICK) )c = ui.getFlickChar(0);
+            // if( ui.getEventBit(D_L_FLICK) );
+            // if( ui.getEventBit(DOWN_FLICK) );
+            // if( ui.getEventBit(R_D_FLICK) );
+            chatstr += c;
+            Serial.print(c);    
           }
-          else if (ui.getTouchBtnID() >= PRESET_BTN_NUM+22 && ui.getTouchBtnID() <= PRESET_BTN_NUM+26)
+
+          if (ui.getTouchBtnID() >= PRESET_BTN_NUM+20 && ui.getTouchBtnID() <= PRESET_BTN_NUM+24)
           {
-            String c = ui.getFlickChar(UI_NO_CUSTOM, ui.getTouchBtnID());
-            Serial.print(c);
-          }
-          ui.drawFlicks(UI_NO_CUSTOM, screen);
+            c = ui.getFlickChar(1);
+            // String c = ui.getFlickChar(PRESET_BTN_NUM, UI_NO_CUSTOM, ui.getTouchBtnID());
+            chatstr += c;
+            Serial.print(c);            
+          } 
+
+          //入力画面を表示
+          tft.fillScreen(TFT_BLACK);
+          tft.setTextSize(1);
+          tft.setFont(&lgfxJapanGothicP_16);//日本語可
+          tft.setCursor(0,20);
+          tft.print(chatstr);
+
+          // ui.drawFlicks(UI_NO_CUSTOM, screen);
         }
 
         pressedBtnID = -1; // リセット
+        for(int i = 0; i < ui.getAllBtnNum(); i ++){//ボタンの強制リセット
+          buttonState[i] = 0;
+        }
       }
     }
+
+  //show touchEvent
+    
+  // for(int i = 0; i<32; i++){
+  //   if(ui.getEventBit(i)){
+  //     tft.fillRect(0, addy + 8*i, 8,8, clist2[cNo]);
+  //   }
+  // }
+
+  // // tft.setFont(&fonts::Font0);
+  // tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  // tft.setCursor(8, addy + 8 * DRAG);tft.print("DRAG");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * TAPPED);tft.print("TAPPED");//イベント定義を描画
+  //   // tft.fillRect(30+addx, addy + 8 * TAPPED,10,10,TFT_RED);
+  // tft.setCursor(8, addy + 8 * WTAPPED);tft.print("WTAPPED");//イベント定義を描画
+  //   // tft.fillRect(30+addx, addy + 8 * WTAPPED,10,10,TFT_YELLOW);
+  // tft.setCursor(8, addy + 8 * FLICK);tft.print("FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * FLICKED);tft.print("FLICKED");//イベント定義を描画
+
+  // tft.setCursor(8, addy + 8 * TOUCH);tft.print("TOUCH");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * WAIT);tft.print("WAIT");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * MOVE);tft.print("MOVE");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * RELEASE);tft.print("RELEASE");//イベント定義を描画
+
+  // tft.setCursor(8, addy + 8 * RIGHT_FLICK);tft.print("RIGHT_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * U_R_FLICK);tft.print("U_R_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * UP_FLICK);tft.print("UP_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * L_U_FLICK);tft.print("L_U_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * LEFT_FLICK);tft.print("LEFT_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * D_L_FLICK);tft.print("D_L_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * DOWN_FLICK);tft.print("DOWN_FLICK");//イベント定義を描画
+  // tft.setCursor(8, addy + 8 * R_D_FLICK);tft.print("R_D_FLICK");//イベント定義を描画
+
+
+  //   tft.fillRect(8+addx, addy + 8 * TAPPED,10,10,TFT_BLUE);
+  //   tft.fillRect(8+addx, addy + 8 * WTAPPED,10,10,TFT_YELLOW);
+
+  //   if( ui.getEventBit(TAPPED) )tft.fillRect(100, addy, 100,100, TFT_BLUE);
+  //   else if( ui.getEventBit(WTAPPED) )tft.fillRect(100, addy, 100,100, TFT_YELLOW);
+
+  //   tft.fillRect(120-20, addy+40-20, 60, 60, TFT_BLACK);//塗りなおし
+  //   tft.fillRect(120, addy+40, 20, 20, TFT_GREEN);//中心
+
+  //   if( ui.getEventBit(RIGHT_FLICK) )tft.fillRect(120+20, addy+40,    20, 20, TFT_RED);
+  //   if( ui.getEventBit(U_R_FLICK) )  tft.fillRect(120+20, addy+40-20, 20, 20, TFT_RED);
+  //   if( ui.getEventBit(UP_FLICK) )   tft.fillRect(120,    addy+40-20, 20, 20, TFT_RED);
+  //   if( ui.getEventBit(L_U_FLICK) )  tft.fillRect(120-20, addy+40-20, 20, 20, TFT_RED);
+  //   if( ui.getEventBit(LEFT_FLICK) ) tft.fillRect(120-20, addy+40,    20, 20, TFT_RED);
+  //   if( ui.getEventBit(D_L_FLICK) )  tft.fillRect(120-20, addy+40+20, 20, 20, TFT_RED);
+  //   if( ui.getEventBit(DOWN_FLICK) ) tft.fillRect(120,    addy+40+20, 20, 20, TFT_RED);
+  //   if( ui.getEventBit(R_D_FLICK) )  tft.fillRect(120+20, addy+40+20, 20, 20, TFT_RED);
+
+  //   for(int i = 0; i<3; i++){
+  //     for(int j = 0; j<3; j++){
+  //       tft.drawRect(100+i*20, addy+20+j*20, 20, 20, TFT_WHITE);//枠線
+  //     }
+  //   }
+
+  // if( ui.getEvent() == RELEASE ){
+  //   cNo++;
+  //   if(cNo==3)cNo = 0;
+  //   ui.resetEventBits();
+    
+  //   for(int i = 0; i<32; i++){
+  //     tft.fillRect(0, addy + 8*i, 8,8, TFT_BLACK);
+  //     tft.drawRect(0, addy + 8*i, 8,8, TFT_WHITE);
+  //   }
+  // }
+
+
   }
 
   uint32_t now = millis();
   uint32_t remainTime = (now >= preTime) ? (now - preTime) : (UINT32_MAX - preTime + now);
   preTime = now;
 
-  if( isEditMode == TFT_RUN_MODE ){
+  if( isEditMode == TFT_RUN_MODE )
+  {
     //ゲーム内のprint時の文字設定をしておく
     
     // tft.setTextSize(1);//サイズ
@@ -1761,60 +2525,61 @@ void loop()
     // tunes.run();
 
     // == game task ==
-    mode = game->run(remainTime);//exitは1が返ってくる　mode=１ 次のゲームを起動
+    game->run(remainTime);
+    // mode = game->run(remainTime);//exitは1が返ってくる　mode=１ 次のゲームを起動
 
-    //ESCボタンで強制終了
-    if (pressedBtnID == 0)
-    { // reload
+    // //ESCボタンで強制終了
+    // if (pressedBtnID == 0)
+    // { // reload
 
-      // editor.setCursorConfig(0,0,0);//カーソルの位置を強制リセット保存
-      // delay(50);
+    //   // editor.setCursorConfig(0,0,0);//カーソルの位置を強制リセット保存
+    //   // delay(50);
 
-      ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
-      appfileName = "/init/main.lua";
+    //   ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
+    //   appfileName = "/init/main.lua";
       
-      firstLoopF = true;
-      toneflag = false;
-      sfxflag = false;
-      musicflag = false;
-      // wfr.close();//起動時に展開したワールドマップ用のファイルを閉じる
+    //   firstLoopF = true;
+    //   toneflag = false;
+    //   sfxflag = false;
+    //   musicflag = false;
+    //   // wfr.close();//起動時に展開したワールドマップ用のファイルを閉じる
 
-      mode = 1;//exit
-    }
+    //   mode = 1;//exit
+    // }
 
-    if (pressedBtnID == 9999)
-    { // reload
-      ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
-      mode = 1;//exit
-      pressedBtnID = -1;
-    }
+    // if (pressedBtnID == 9999)
+    // { // reload
+    //   ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
+    //   mode = 1;//exit
+    //   pressedBtnID = -1;
+    // }
 
-    if(mode != 0){ // exit request//次のゲームを立ち上げるフラグ値、「modeが１＝次のゲームを起動」であれば
-      // tunes.pause();
-      game->pause();
-      // ui.clearAddBtns();//個別のゲーム内で追加したタッチボタンを消去する
-      free(game);
-      firstLoopF = true;
-      toneflag = false;
-      sfxflag = false;
-      musicflag = false;
-      // txtName = appfileName;
-      game = nextGameObject(&appfileName, gameState, mapFileName);//ファイルの種類を判別して適したゲームオブジェクトを生成
-      game->init();//resume()（再開処理）を呼び出し、ゲームで利用する関数などを準備
-      // tunes.resume();
+    // if(mode != 0){ // exit request//次のゲームを立ち上げるフラグ値、「modeが１＝次のゲームを起動」であれば
+    //   // tunes.pause();
+    //   game->pause();
+    //   // ui.clearAddBtns();//個別のゲーム内で追加したタッチボタンを消去する
+    //   free(game);
+    //   firstLoopF = true;
+    //   toneflag = false;
+    //   sfxflag = false;
+    //   musicflag = false;
+    //   // txtName = appfileName;
+    //   game = nextGameObject(&appfileName, gameState, mapFileName);//ファイルの種類を判別して適したゲームオブジェクトを生成
+    //   game->init();//resume()（再開処理）を呼び出し、ゲームで利用する関数などを準備
+    //   // tunes.resume();
       
-    }
+    // }
 
     // ui.showTouchEventInfo( tft, 0, 100 );//タッチイベントを視覚化する
     ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
-
+    
+    
+    
     // spriteMap.drawPngFile(SPIFFS, "/init/param/map/0.png", 0, 0); 
     // spriteMap.fillScreen(TFT_BLUE);
 
-
     // spriteMap.pushSprite(&tft, 0,0);
 
-  
     // if(outputMode == WIDE_MODE){
       // tft.pushAffine(matrix_game);//ゲーム画面を最終描画する
       if(toolNo != 0){
@@ -1829,9 +2594,14 @@ void loop()
         toolNo = 0;
       }
 
-      //Affineを使わない書き方
-      tft.setPivot(0, 0);
-      tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
+    // tft.fillRect(channels->gettick()*4,0,4,128,TFT_YELLOW);
+    // tft.fillRect(tick*4,0,4,4,TFT_YELLOW);
+
+    Serial.println("");
+    //Affineを使わない書き方
+    tft.setPivot(0, 0);
+    tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
+
     // }
     // else if(outputMode == FAST_MODE){
     //   tft.pushSprite(&screen,TFT_OFFSET_X,TFT_OFFSET_Y);//ゲーム画面を小さく高速描画する
@@ -1877,34 +2647,226 @@ void loop()
   }
   else if(isEditMode == TFT_WIFI_MODE)
   {
-    // editor.editorRefreshScreen(tft);
+    // == tune task ==
+    // tunes.run();
+    // == game task ==
+
+    // mode = game->run(remainTime);//exitは1が返ってくる　mode=１ 次のゲームを起動
 
     //ESCボタンで強制終了
-    // if (pressedBtnID == 0)
-    // { // reload
-    //   safeReboot();
-    // }
+    if (pressedBtnID == 0)
+    { 
+      ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
+      appfileName = "/init/main.lua";
+      
+      firstLoopF = true;
+      toneflag = false;
+      sfxflag = false;
+      musicflag = false;
+      // wfr.close();//起動時に展開したワールドマップ用のファイルを閉じる
+      mode = 1;//exit
+    }
+
+    if (pressedBtnID == 9999)
+    { // reload
+      ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
+      mode = 1;//exit
+      pressedBtnID = -1;
+    }
+
+    if(mode != 0){ // exit request//次のゲームを立ち上げるフラグ値、「modeが１＝次のゲームを起動」であれば
+      // tunes.pause();
+      game->pause();
+      // ui.clearAddBtns();//個別のゲーム内で追加したタッチボタンを消去する
+      free(game);
+      firstLoopF = true;
+      toneflag = false;
+      sfxflag = false;
+      musicflag = false;
+      // txtName = appfileName;
+      game = nextGameObject(&appfileName, gameState, mapFileName);//ファイルの種類を判別して適したゲームオブジェクトを生成
+      game->init();//resume()（再開処理）を呼び出し、ゲームで利用する関数などを準備
+      // tunes.resume();
+      
+    }
+    
+
+    // ui.showTouchEventInfo( tft, 0, 100 );//タッチイベントを視覚化する
+    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
 
 
-    // tft.setTextSize(1);//サイズ
-    // tft.setFont(&lgfxJapanGothicP_8);//日本語可
+    //Affineを使わない書き方
+    tft.setPivot(0, 0);
+    tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
+
+    tft.setTextSize(1);//サイズ
+    tft.setFont(&lgfxJapanGothicP_8);//日本語可
     // tft.setCursor(0, 0);//位置
     // tft.setTextWrap(true);
     // tft.setTextScroll(true);
 
 
-    if(pressedBtnID == 6){//PAGEDOWN
+
+    if(pressedBtnID == 11){
       // editor.editorSave(SPIFFS);//SPIFFSに保存
       // delay(100);//ちょっと待つ
-      // broadchat();
+      // chatstr = "test text";
+      broadchat(chatstr);
+      delay(500);
+      
     }
 
-    tft.pushSprite(&screen,40,0);
+    // tft.pushSprite(&screen,40,0);
+  }
+  else if( isEditMode == TFT_SOUND_MODE )
+  {
+    //ゲーム内のprint時の文字設定をしておく
+    
+    
+    tft.setFont(&fonts::Font0);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(1);//サイズ
+    // tft.setFont(&lgfxJapanGothicP_8);//日本語可
+    // tft.setCursor(0, 0);//位置
+    // tft.setTextWrap(true);
+
+    if(ui.getTouchBtnID()>=20&&ui.getTouchBtnID()<28){//getTouchBtnIDはトグル的な扱いの時のみ使える（押したらそのままの値を保持する）
+      instrument = ui.getTouchBtnID()-20;
+    }
+
+    if(ui.getTouchBtnID()>=36&&ui.getTouchBtnID()<44){//チャンネル0~7
+      targetChannelNo = ui.getTouchBtnID()-36;
+    }
+    
+    if(ui.getTouchBtnID()>=44&&ui.getTouchBtnID()<52){//サウンドエフェクト0~7
+      gEfectNo = ui.getTouchBtnID()-44;
+    }
+
+    // == tune task ==
+    // tunes.run();
+
+    // == game task ==
+    // tft.fillScreen(gethaco3Col(1));
+    tft.fillRect(0,  0, 128, 96, gethaco3Col(1));
+    tft.fillRect(0, 96, 128, 32, gethaco3Col(6));
+
+    showMusicInfo();
+    controlMusicVisual();
+
+    
+
+    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
+
+    // for(size_t n=0; n<4; n++){
+    //   Serial.print(channels->patterns[patternNo][n]);
+    // }
+
+    // Serial.println("");
+    //Affineを使わない書き方
+
+    // tft.drawPixel(128, channels->getbuf()[0], TFT_WHITE);
+
+    // tft.drawPixel(128, channels->getbuf()[0], TFT_WHITE);
+
+    // Serial.println(channels->getChannelVolume(0));
+
+    // tft.fillRect(128, channels->getChannelVolume(0), 4,4,gethaco3Col(10));
+
+    tft.setPivot(0, 0);
+    tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
+
+    // if(i==0){
+    //   patternNo++;
+    //   if(patternNo==32)patternNo=0;
+    // }
+
+  }
+  else if( isEditMode == TFT_MUSICPLAY_MODE )
+  {
+    //ゲーム画面を表示
+    // == tune task ==
+    // tunes.run();
+
+    // == game task ==
+    mode = game->run(remainTime);//exitは1が返ってくる　mode=１ 次のゲームを起動
+    
+
+    //ESCボタンで強制終了
+    // if (pressedBtnID == 0)
+    // { // reload
+
+    //   // editor.setCursorConfig(0,0,0);//カーソルの位置を強制リセット保存
+    //   // delay(50);
+
+    //   ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
+    //   appfileName = "/init/main.lua";
+      
+    //   firstLoopF = true;
+    //   toneflag = false;
+    //   sfxflag = false;
+    //   musicflag = false;
+    //   // wfr.close();//起動時に展開したワールドマップ用のファイルを閉じる
+
+    //   mode = 1;//exit
+    // }
+
+    // if (pressedBtnID == 9999)
+    // { // reload
+    //   ui.setConstantGetF(false);//初期化処理 タッチポイントの常時取得を切る
+    //   mode = 1;//exit
+    //   pressedBtnID = -1;
+    // }
+
+    // if(mode != 0){ // exit request//次のゲームを立ち上げるフラグ値、「modeが１＝次のゲームを起動」であれば
+    //   // tunes.pause();
+    //   game->pause();
+    //   // ui.clearAddBtns();//個別のゲーム内で追加したタッチボタンを消去する
+    //   free(game);
+    //   firstLoopF = true;
+    //   toneflag = false;
+    //   sfxflag = false;
+    //   musicflag = false;
+    //   // txtName = appfileName;
+    //   game = nextGameObject(&appfileName, gameState, mapFileName);//ファイルの種類を判別して適したゲームオブジェクトを生成
+    //   game->init();//resume()（再開処理）を呼び出し、ゲームで利用する関数などを準備
+    //   // tunes.resume();
+      
+    // }
+    //ゲーム内のprint時の文字設定をしておく
+
+    // tft.setFont(&fonts::Font0);
+    // tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    // tft.setTextSize(1);//サイズ
+
+
+    //音楽プレイ確認用画面を表示
+    // tft.fillRect(0,  0, 128, 96, gethaco3Col(1));
+    // tft.fillRect(0, 96, 128, 32, gethaco3Col(6));
+    // showMusicVisual();
+
+    // showMusicInfo();
+
+    // tft.fillRect(0, writeDispRow*8, 8, 8, TFT_YELLOW);
+
+    // tft.fillRect(0, targetDispRow*8, 8, 8, TFT_RED);
+
+    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
+    tft.setPivot(0, 0);
+    tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
+    
   }
 
   frame++;
+
+  // drawWaitF = true;
+  
+  // while(!drawWaitF){
+  //   delay(1);
+  // }
+  
+
   if(frame > 18446744073709551615)frame = 0;
 
+  // }
   delay(1);
-  
 }

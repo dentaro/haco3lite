@@ -9,7 +9,7 @@ extern void setFileName(String s);
 extern bool isWifiDebug();
 // extern void readMap(String _appfileName,int wx,int wy);
 extern void reboot();
-extern void reboot(String _fileName, int _isEditMode);
+extern void reboot(String _fileName, size_t _isEditMode);
 // extern Tunes tunes;
 extern int pressedBtnID;
 extern LovyanGFX_DentaroUI ui;
@@ -29,16 +29,15 @@ extern bool toneflag;
 extern bool firstLoopF;
 extern float radone;
 extern bool downloadF;
-extern void setOpenConfig(String fileName, int _isEditMode);
+extern void setOpenConfig(String fileName, size_t _isEditMode);
 extern void getOpenConfig();
 extern std::deque<int> buttonState;//ボタンの個数未定
-
-extern void restart(String _fileName, int _isEditMode);
-// extern int gethaco3Col(uint8_t _cno);
+extern void restart(String _fileName, size_t _isEditMode);
 extern uint16_t gethaco3Col(size_t haco3ColNo);
-
 extern Speaker_Class* channels;
 
+// extern SemaphoreHandle_t frameSemaphore;
+// extern SemaphoreHandle_t nextFrameSemaphore;
 extern char keychar;
 // extern Editor editor;
 
@@ -46,55 +45,9 @@ extern uint8_t mainVol;
 
 extern String savedAppfileName;
 extern bool difffileF;//前と違うファイルを開こうとしたときに立つフラグ
-
-// extern Speaker_Class channels;
-
 extern std::vector<uint8_t> sprite64cnos_vector;
-// extern void getOpenConfig(String _wrfile);
 
 int cursor = 0;
-
-// runLuaGame.cpp ファイル内に以下のように RGBValues 配列を宣言してください。
-// const uint8_t RGBValues[][3] PROGMEM = {//24bit
-
-//   { 0,0,0},//0: 黒色
-//   { 27,42,86 },//1: 暗い青色
-//   { 137,24,84 },//2: 暗い紫色
-//   { 0,139,75 },//3: 暗い緑色
-//   { 183,76,45 },//4: 茶色
-//   { 97,87,78 },//5: 暗い灰色
-//   { 194,195,199 },//6: 明るい灰色
-//   { 255,241,231 },//7: 白色
-//   { 255,0,70 },//8: 赤色
-//   { 255,160,0 },//9: オレンジ
-//   { 255,238,0 },//10: 黄色
-//   { 0,234,0 },//11: 緑色
-//   { 0,173,255 },//12: 水色
-//   { 134,116,159 },//13: 藍色
-//   { 255,107,169 },//14: ピンク
-//   { 255,202,165}//15: 桃色
-
-// };
-
-// const uint8_t RGBValues[][3] PROGMEM = {//16bit用
-//   {0, 0, 0},     // 0: 黒色=なし
-//   {24, 40, 82},  // 1: 暗い青色
-//   {140, 24, 82}, // 2: 暗い紫色
-//   {0, 138, 74},  // 3: 暗い緑色
-//   {181, 77, 41}, // 4: 茶色 
-//   {99, 85, 74},  // 5: 暗い灰色
-//   {198, 195, 198}, // 6: 明るい灰色
-//   {255, 243, 231}, // 7: 白色
-//   {255, 0, 66},  // 8: 赤色
-//   {255, 162, 0}, // 9: オレンジ
-//   {255, 239, 0}, // 10: 黄色
-//   {0, 235, 0},   // 11: 緑色
-//   {0, 174, 255}, // 12: 水色
-//   {132, 117, 156}, // 13: 藍色
-//   {255, 105, 173}, // 14: ピンク
-//   {255, 203, 165}  // 15: 桃色
-// };
-
 
 extern "C" {
   void gprint(char* s){
@@ -124,9 +77,6 @@ extern "C" {
     ret[len + 1] = 0;
 
     *size = len + 1;
-    // Serial.print("");
-    // Serial.print(ret);
-    // Serial.println(*size);
     return ret;
   }
 }
@@ -179,18 +129,20 @@ int RunLuaGame::loadSurface(File *fp, uint8_t* buf){
 
   fp->seek(biSize - (4 + 4 + 4 + 2 + 2), SeekCur);
   uint8_t r, g, b;
-  for(unsigned int i = 0; i < 256; i ++){
-    fp->read(&b, 1);
-    fp->read(&g, 1);
-    fp->read(&r, 1);
-    fp->seek(1, SeekCur);
-    palette[i] = lua_rgb24to16(r, g, b);
-    // Serial.print("palette");
-    // Serial.println(i);
-    // Serial.print(r);
-    // Serial.print(g);
-    // Serial.print(b);
-  }
+
+  // for(unsigned int i = 0; i < 256; i ++){
+  //   fp->read(&b, 1);
+  //   fp->read(&g, 1);
+  //   fp->read(&r, 1);
+  //   fp->seek(1, SeekCur);
+  //   palette[i] = lua_rgb24to16(r, g, b);
+
+  //   // Serial.print("palette");
+  //   // Serial.println(i);
+  //   // Serial.print(r);
+  //   // Serial.print(g);
+  //   // Serial.print(b);
+  // }
 
   Serial.println("pre seek");
   fp->seek(offset, SeekSet); // go to bmp data section
@@ -486,12 +438,12 @@ int RunLuaGame::l_pget(lua_State* L){
   uint16_t c = tft.readPixel(x, y);
 
   uint8_t index = 0;
-  for(unsigned int pi = 0; pi < 256; pi ++){
-    if(self->palette[pi] == c){
-      index = pi;
-      break;
-    }
-  }
+  // for(unsigned int pi = 0; pi < 256; pi ++){
+  //   if(self->palette[pi] == c){
+  //     index = pi;
+  //     break;
+  //   }
+  // }
   uint8_t r = ((c >> 11) << 3); // 5bit
   uint8_t g = (((c >> 5) & 0b111111) << 2); // 6bit
   uint8_t b = ((c & 0b11111) << 3);       // 5bit
@@ -997,28 +949,28 @@ int RunLuaGame::l_drawcircle(lua_State* L){
   return 0;
 }
 
-int RunLuaGame::l_phbtn(lua_State* L){
-  int n = lua_tointeger(L, 1);
-  int n2 = lua_tointeger(L, 2);
+// int RunLuaGame::l_phbtn(lua_State* L){
+//   int n = lua_tointeger(L, 1);
+//   int n2 = lua_tointeger(L, 2);
 
-  if(n2!=NULL){
+//   if(n2!=NULL){
 
-    //アナログジョイスティックの場合
-    lua_pushinteger(L, (lua_Integer)ui.getPhVolVec(n, n2));
+//     //アナログジョイスティックの場合
+//     lua_pushinteger(L, (lua_Integer)ui.getPhVolVec(n, n2));
    
 
-  }else if(n2==NULL){
+//   }else if(n2==NULL){
 
-    if(n == 2){
-      lua_pushinteger(L, (lua_Integer)ui.getPhVolDir(n));//-1と0~7方向番号を返す//４アナログスイッチの場合
-      // Serial.print(ui.getPhVolDir(n));
-    }
-  }else if(n == 3){
-    lua_pushinteger(L, (lua_Integer)ui.getPhVol(n));//生のデータを返す(ボリュームの場合)
-  }
+//     if(n == 2){
+//       lua_pushinteger(L, (lua_Integer)ui.getPhVolDir(n));//-1と0~7方向番号を返す//４アナログスイッチの場合
+//       // Serial.print(ui.getPhVolDir(n));
+//     }
+//   }else if(n == 3){
+//     lua_pushinteger(L, (lua_Integer)ui.getPhVol(n));//生のデータを返す(ボリュームの場合)
+//   }
   
-  return 1;
-}
+//   return 1;
+// }
 
 
 int RunLuaGame::l_key(lua_State* L){
@@ -1045,6 +997,7 @@ int RunLuaGame::l_btn(lua_State* L){
       lua_pushnumber(L, val - addval);
     }
   }
+  
   return 1;
 }
 
@@ -1129,6 +1082,8 @@ int RunLuaGame::l_run(lua_State* L){//ファイル名を取得して、そのフ
   self->exitRequest = true;//次のゲームを立ち上げるフラグを立てる
   nowappfileName = appfileName;
   setOpenConfig(appfileName,0);//configに書き込んでおく
+  
+  
 
   return 0;
 }
@@ -1136,7 +1091,7 @@ int RunLuaGame::l_run(lua_State* L){//ファイル名を取得して、そのフ
 int RunLuaGame::l_appmode(lua_State* L){//ファイル名を取得して、そのファイルを実行runする
   RunLuaGame* self = (RunLuaGame*)lua_touserdata(L, lua_upvalueindex(1));
   const char* file = lua_tostring(L, 1);
-  const int modeno = lua_tointeger(L, 2);
+  const size_t modeno = lua_tointeger(L, 2);
 
   Serial.print(file);
   Serial.print("][");
@@ -1575,9 +1530,9 @@ L = luaL_newstate();
   lua_pushcclosure(L, l_drawcircle, 1);
   lua_setglobal(L, "drawcircle");
 
-  lua_pushlightuserdata(L, this);
-  lua_pushcclosure(L, l_phbtn, 1);
-  lua_setglobal(L, "phbtn");
+  // lua_pushlightuserdata(L, this);
+  // lua_pushcclosure(L, l_phbtn, 1);
+  // lua_setglobal(L, "phbtn");
   
   lua_pushlightuserdata(L, this);
   lua_pushcclosure(L, l_key, 1);
@@ -1657,90 +1612,8 @@ L = luaL_newstate();
 
   haco8resume();//派生クラスでのみこの位置で実行されるダミー関数
 
-  // File fr;
-
-  // fr = SPIFFS.open(SPRBITS_FILE, "r");
-  // for (int i = 0; i < 128; i++) {
-  //   String _readStr = fr.readStringUntil(','); // ,まで１つ読み出し
-  //   std::string _readstr = _readStr.c_str();
-
-  //   // 改行を取り除く処理
-  //   const char CR = '\r';
-  //   const char LF = '\n';
-  //   std::string destStr;
-  //   for (std::string::const_iterator it = _readstr.begin(); it != _readstr.end(); ++it) {
-  //     if (*it != CR && *it != LF && *it != '\0') {
-  //       destStr += *it;
-  //     }
-  //   }
-
-  //   _readstr = destStr;
-
-  //   uint8_t bdata = 0b00000000;
-  //   uint8_t bitfilter = 0b10000000; // 書き換え対象ビット指定用
-
-  //   for (int j = 0; j < _readstr.length(); ++j) {
-  //       char ch = _readstr[j];
-  //       // Serial.print(ch);
-  //       if (ch == '1') {
-  //           bdata |= bitfilter; // 状態を重ね合わせて合成
-  //       }
-  //       bitfilter = bitfilter >> 1; // 書き換え対象ビットを一つずらす
-  //   }
-
-  //   sprbits[i] = bdata;
-  //   // Serial.print(":");
-  //   // Serial.print(bdata); // 0～255
-  //   // Serial.print(":");
-  //   // Serial.println("end");
-  // }
-  // fr.close();
-  //アプリのパスからアプリ名を取得
-  // string str1 = appfileName.c_str();
-  // int i=0;
-
-  // for (string s : split(str1,'/')) {
-  //   if(i==1){
-  //     appNameStr = s.c_str();
-  //     fr = SPIFFS.open("/" + appNameStr + "/mapinfo.txt", "r");// ⑩ファイルを読み込みモードで開く
-  //   }
-  //    i++;
-  // }
-
-  // for(int i= 0;i<16;i++){//マップを描くときに使うスプライト番号リストを読み込む
-  //   String _readStr = fr.readStringUntil(',');// ⑪,まで１つ読み出し
-  //   mapsprnos[i] = atoi(_readStr.c_str());
-  // }
-
-  // String _readStr = fr.readStringUntil(',');// 最後はマップのパス
-  // mapFileName = "/init/param/map/"+_readStr;
-  // fr.close();	// ⑫	ファイルを閉じる
-  
-  // readMap(mapFileName);
-  // delay(50);
-
-  
-
-  // SPIFFS.begin(true);//SPIFFSを利用可能にする
-
-  // if(SPIFFS.exists(getPngName(appfileName))){
-  //   sprite64.drawPngFile(SPIFFS, appfileName, 0, 0);
-  // }
-  
-  //後でSDからもファイルを読めるようにする
-
-  // SD.begin(true);//SPIFFSを利用可能にする
-
-  // if(SD.exists("/initspr.png")){
-  //   sprite256[0][0].drawPngFile(SPIFFS, "/init/initspr.png", 0, 0);
-  // }
-  
-  File fp = SPIFFS.open(appfileName, FILE_READ);
-
-  tft.fillScreen(TFT_BLACK);
-
-  struct LoadF lf;
-  lf.f = fp;
+  LoadF lf(MAX_CHAR); // 1024 バイトのメモリを確保する例
+  lf.f = SPIFFS.open(appfileName, FILE_READ);
 
   char cFileName[32];
   appfileName.toCharArray(cFileName, 32);//char変換
@@ -1752,8 +1625,6 @@ L = luaL_newstate();
     errorString = lua_tostring(L, -1);
   }
 
-  fp.close();
-
   if (!runError) {
     if (lua_pcall(L, 0, 0, 0)) {
         Serial.printf("init error? %s\n", lua_tostring(L, -1));
@@ -1761,6 +1632,12 @@ L = luaL_newstate();
         errorString = lua_tostring(L, -1);
     }
   }
+
+  // 不要になった動的メモリを解放
+  delete[] lf.buf;
+  lf.buf = nullptr; // nullptr でポインタをクリアすることが推奨されています
+
+  tft.fillScreen(TFT_BLACK);
 
   ui.clearAddBtns();
 
@@ -1798,144 +1675,66 @@ L = luaL_newstate();
 // }
 }
 
-int RunLuaGame::run(int _remainTime){
-  if(_remainTime < 1000/60){//経過時間が60分の1秒を過ぎていなければ
-
-  // if(wifiDebugRequest){
-  //   startWifiDebug(wifiDebugSelf);
-  //   wifiMode = SHOW;
-  //   wifiDebugRequest = false;
-  // }
-
-  if(exitRequest){//次のゲームを起動するフラグがたったら
-    exitRequest = false;//フラグをリセットして、
-    return 1; // exit(1をリターンすることで、main.cppの変数modeを１にする)
-  }
-
-  //ボタンを押してからの経過時間を返すための処理
-  // for(int i = 0; i < ui.getAllBtnNum(); i ++){
-  //   if(ui.getEvent() == NO_EVENT)
-  //   {
-  //     buttonState[i] = 0;
-  //   }
-
-  //   else if(ui.getEvent() == MOVE)
-  //   {
-  //     if(pressedBtnID == i){//押されたものだけの値をあげる
-  //       buttonState[i] ++;
-  //     }
-  //   }
-
-  // Serial.println(pressedBtnID);
-  for(int i = 0; i < ui.getAllBtnNum(); i ++){
-    if(pressedBtnID == -1){
-      buttonState[i] = 0;
-    }else if(pressedBtnID == i){//押されたものだけの値をあげる
-      buttonState[i] ++;
+int RunLuaGame::run(int _remainTime)
+{
+  if (_remainTime < 1000 / 60)
+  {
+    if (exitRequest) {
+      exitRequest = false;
+      return 1;  // main.cppの変数modeを1にする
     }
-  }
 
-  if(ui.getPos().x<256){//UIエリアに入っていなければ
-  //タッチボタンを押してからの経過時間を返すための処理を行う
-    if(ui.getEvent() == NO_EVENT)
-    {
-      touchState = 0;
+    for (int i = 0; i < ui.getAllBtnNum(); i++) {
+      buttonState[i] = (pressedBtnID == i) ? buttonState[i] + 1 : 0;
     }
-    else if(ui.getEvent() == MOVE)
-    {
-        touchState ++;
-    }
-  }
-  // else{//UIエリアに入ったら
-  // }
-  if(wifiMode == NONE || wifiMode == RUN){
-    if(runError){
-    //   tft.setTextSize(1);
-    //   tft.setTextColor(TFT_WHITE, TFT_RED);
-    //   tft.setCursor(0, 0);
-    //   tft.setTextWrap(true);
-    //   tft.print(errorString);
-    //   tft.setTextWrap(false);
-    }else{
 
-      if(firstLoopF == true){
-        if(luaL_dostring(L, "_init()")){
-          lua_pop(L, 1);
-          Serial.printf("run error? %s\n", lua_tostring(L, -1));
-          runError = true;
-          errorString = lua_tostring(L, -1);
+    if (ui.getPos().x < 256) {
+      if (ui.getEvent() == NO_EVENT) {
+        touchState = 0;
+      } else if (ui.getEvent() == MOVE) {
+        touchState++;
+      }
+    }
+
+    if (wifiMode == NONE || wifiMode == RUN) {
+      if (runError) {
+        // エラーハンドリングが必要な場合の処理を追加する
+      } else {
+        if (firstLoopF) {
+          if (luaL_dostring(L, "_init()")) {
+            lua_pop(L, 1);
+            Serial.printf("run error? %s\n", lua_tostring(L, -1));
+            runError = true;
+            errorString = lua_tostring(L, -1);
+          }
+          firstLoopF = false;
         }
-        firstLoopF = false;
+        luaL_dostring(L, "_update()");
+        luaL_dostring(L, "_draw()");
       }
-
-      // if(luaL_dostring(L, "loop()")){
-      //   // Serial.printf("run error? %s\n", lua_tostring(L, -1));
-      //   // runError = true;
-      //   // errorString = lua_tostring(L, -1);
-      // }else{
-        
-      //   // Serial.println("|");
-      // }
-
-      if(luaL_dostring(L, "_update()")){
-        lua_pop(L, 1);
-        // Serial.printf("run error? %s\n", lua_tostring(L, -1));
-        // runError = true;
-        // errorString = lua_tostring(L, -1);
-      }
-
-      if(luaL_dostring(L, "_draw()")){
-        lua_pop(L, 1);
-        // Serial.printf("run error? %s\n", lua_tostring(L, -1));
-        // runError = true;
-        // errorString = lua_tostring(L, -1);
-      }
+    } else if (wifiMode == SELECT) {
+      tft.fillRect(0, 0, 128, 64, lua_rgb24to16(64,64,64));
+      tft.setTextSize(1);
+      tft.setTextColor(TFT_WHITE, TFT_BLUE);
+      tft.setCursor(0, 0);
+      tft.print("pause");
+      tft.setCursor(0, 8);
+      tft.print("  WiFi AP");
+      tft.setCursor(0, 16);
+      tft.print("  WiFi STA");
+      tft.setCursor(0, 24);
+      tft.print("  load /init/main.lua");
+      tft.setCursor(0, (modeSelect + 1) * 8);
+      tft.print(">");
+    } else if (wifiMode == SHOW) {
+      // SHOWモードの処理を追加する
     }
-  }else if(wifiMode == SELECT){
-    tft.fillRect(0, 0, 128, 64, lua_rgb24to16(64,64,64));
-    tft.setTextSize(1);
+
     tft.setTextColor(TFT_WHITE, TFT_BLUE);
-    tft.setCursor(0, 0);
-    tft.print("pause");
-    tft.setCursor(0, 8);
-    tft.print("  WiFi AP");
-    tft.setCursor(0, 16);
-    tft.print("  WiFi STA");
-    tft.setCursor(0, 24);
-    tft.print("  load /init/main.lua");
-    tft.setCursor(0, (modeSelect + 1) * 8);
-    tft.print(">");
-    
-  }else if(wifiMode == SHOW){
-    // if(buttonState[9]){ // reload//ブルーメニューをとじてwifionのまま戻る
-    //   wifiMode = RUN;
-    // }
-  }
-
-  // show FPS
-  // sprintf(str, "%02dFPS", 1000/_remainTime); // FPS
-
-  // tft.setTextSize(1);
-  // tft.setTextColor(TFT_WHITE, TFT_BLUE);
-  // tft.setCursor(90, 127 - 16);
-  // tft.print(str);
-
-  // sprintf(str, "%02dms", _remainTime); // ms
-  // tft.setCursor(90, 127 - 8);
-  // tft.print(str);
-  
-  //show FPS:ms
-  tft.setTextColor(TFT_WHITE, TFT_BLUE);
-  tft.setCursor(0, 127-16);
-  tft.print(String(1000/_remainTime) + "FPS");
-  tft.setCursor(0, 127-8);
-  tft.print(String(_remainTime) + "ms");
-
-  // int wait = 1000/30 - _remainTime;
-  // if(wait > 0){
-  //   delay(wait);
-  // }
-  // frame++;
+    tft.setCursor(0, 127 - 16);
+    tft.print(String(1000 / _remainTime) + "FPS");
+    tft.setCursor(0, 127 - 8);
+    tft.print(String(_remainTime) + "ms");
   }
 
   return 0;
