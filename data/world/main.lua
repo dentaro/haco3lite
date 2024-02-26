@@ -1,75 +1,69 @@
-function get_map_sprn(sprx,spry)
-  local celx=flr(sprx/8)
-  local cely=flr(spry/8)
-  local celc=mget(celx,cely)
-  return celc
+function collision(x,y)
+  return mapf(x,y) or mapf(x+7,y) or mapf(x,y+7) or mapf(x+7,y+7)
 end
-
 x=80
 y=64
 tx=0
 ty=0
 ax=171--lcx(171)
-ay=218--lcy(218)
-wx=164--0
-wy=210--36
+ay=200--lcy(218)
+wx=156--0
+wy=187--36
 px=0
 py=0
-d=1 -- 方向を示す  
-
+wstat=1
 function _init()--1回だけ
-
 end
 function _update()
-
---functionの後に一行開けると安定する？パーサーのバグ？
-  local prex=x--これがあるとなぜがうまく動く
-  local prey=y--これがあるとなぜがうまく動く
   if (btn(1)>=1) then
   wx=wx-1
-  d=1
   end
   if (btn(2)>=1) then
   wx=wx+1
-  d=2
   end
   if (btn(3)>=1) then
   wy=wy-1
-  d=3
   end
   if (btn(4)>=1) then
   wy=wy+1
-  d=4
   end
   wx=wx%256
   wy=wy%256
-  fset(0,0,1)--水スプライト45を通れなく（0ビットを1に）する
 end
 function _draw()
-
   if wx~=px or wy~=py then
-    rmap("/init/param/map/w2.bin",wx,wy)
-  end
-  spr8(d+64,(ax-wx)*8, (ay-wy)*8, 1,1,0, 0,11)--村人スプライト透明色指定のあとに色番号をつけるとふちどり
-  mset(100, (ax-wx)*8, (ay-wy)*8)
-  spr8(d+64,x,y,1,1,0, 0,10)--主人公スプライト透明色指定のあとに色番号をつけるとふちどり
-  if d==9  then 
-    tx=x - 8
-    ty=y
-  elseif d==10 then 
-    tx=x + 8 
-    ty=y
-  elseif d==11 then 
-    tx=x
-    ty=y - 8 
-  elseif d==12 then 
-    tx=x
-    ty=y + 8 
-  end
-  px=wx
-  py=wy
+    rmap("/init/param/map/w.bin",wx,wy)
+    if collision(x,y) == true then
+      wx=px
+      wy=py
+    end
+    tone(1, 440, 32)
+    for j = 1, 3 do
+      for i = 1, 3 do
+        xx=(160-wx)*8+i*16
+        yy=(190-wy)*8+j*16
+        spr8(64,xx, yy, 1,1,0, 0, 7)--村人スプライト透明色指定のあとに色番号をつけるとふちどり
+        mset(100, xx, yy)
+      end
+    end
+    spr8(64,x,y,1,1,0, 0,10)--主人公スプライト透明色指定のあとに色番号をつけるとふちどり
+    px=wx
+    py=wy
+  else
+    if sprn(tx+x,ty+y)==100 then
+      HPMP=1
+      win(wstat, 0,   0, 1, 2, 3, HPMP,"ああああ")
+      win(wstat, 40,  0, 1, 2, 3, HPMP,"いいいい")
+      win(wstat, 80,  0, 1, 2, 3, HPMP,"うううう")
+      win(wstat, 120, 0, 1, 2, 3, HPMP,"ええええ")
+      -- win(wstat, 0, 0,2, 3, 4,0,"どうする？")
+      -- win(wstat,88, 0,1, 8, 7,0,"どうぐ")
+      rectfill(56, 32, 48, 90, 0, "/world/png/enemy/3.png") --160,48が敵エリアの最大値
+      -- rectfill(0, 32, 160, 96, 8);
+      win(wstat, 0,80,1, 4,18, 0,"むらびと")
 
-  print(get_map_sprn(tx+x,ty+y),120,96)--スプライト値を表示
-  print(wx,120,104)--ワールド座標を表示
-  print(wy,120,112)--ワールド座標を表示
+    end
+  end
+  -- print(wx,120,104)--ワールド座標を表示
+  -- print(wy,120,112)--ワールド座標を表示
 end
