@@ -37,6 +37,8 @@ extern "C"{
 
 #define STARS_NUM 1
 
+#define HPMP 1
+
 struct Intersection {
     float x;
     float y;
@@ -159,6 +161,8 @@ class RunHaco8Game: public RunLuaGame
   static int l_map(lua_State* L);
   static int l_mset(lua_State* L);
   static int l_mget(lua_State* L);
+  static int l_mapf(lua_State* L);
+  static int l_sprn(lua_State* L);
   static int l_spr8(lua_State* L);
 
   // static int l_del(lua_State* L);
@@ -179,6 +183,7 @@ class RunHaco8Game: public RunLuaGame
   static int l_cam(lua_State* L);
   static int l_trans(lua_State* L);
 
+  static int l_win(lua_State* L);
   //fps関連
   static int l_wini(lua_State* L);
   static int l_wset(lua_State* L);

@@ -1,7 +1,7 @@
 #include "runLuaGame.h"
 extern MyTFT_eSprite tft;
 // extern LGFX_Sprite sprite64;
-extern LGFX_Sprite sprite256[2][2];
+// extern LGFX_Sprite sprite256[2][2];
 extern LGFX_Sprite sprite88_roi;
 extern String appfileName;
 extern void startWifiDebug(bool isSelf);
@@ -60,25 +60,42 @@ extern "C" {
     }
   }
 
-  const char *getF(lua_State *L, void *ud, size_t *size){
+const char *getF(lua_State *L, void *ud, size_t *size){
     struct LoadF *lf = (struct LoadF *)ud;
-    (void)L; /* not used */
-    char* ret = NULL;
+    (void)L; // not used
+    static char buf[MAX_CHAR + 1]; // 静的バッファを使用する
 
-    if(!lf->f.available()){
+    if (!lf->f.available()){
       *size = 0;
       return NULL;
     }
 
-    lf->f.readStringUntil('\n').toCharArray(lf->buf, MAX_CHAR);
-    ret = lf->buf;
-    int len = strnlen(ret, MAX_CHAR);
-    ret[len] = '\n'; // todo n, n+1 > MAX_CHAR ?
-    ret[len + 1] = 0;
+    size_t bytesRead = lf->f.readBytes(buf, MAX_CHAR); // 最大MAX_CHARバイトを読み取る
+    buf[bytesRead] = '\0'; // バッファの終端を設定
 
-    *size = len + 1;
-    return ret;
-  }
+    *size = bytesRead;
+    return buf;
+}
+
+//   const char *getF(lua_State *L, void *ud, size_t *size){
+//     struct LoadF *lf = (struct LoadF *)ud;
+//     (void)L; /* not used */
+//     char* ret = NULL;
+
+//     if(!lf->f.available()){
+//       *size = 0;
+//       return NULL;
+//     }
+
+//     lf->f.readStringUntil('\n').toCharArray(lf->buf, MAX_CHAR);
+//     ret = lf->buf;
+//     int len = strnlen(ret, MAX_CHAR);
+//     ret[len] = '\n'; // todo n, n+1 > MAX_CHAR ?
+//     ret[len + 1] = 0;
+
+//     *size = len + 1;
+//     return ret;
+//   }
 }
 
 int RunLuaGame::loadSurface(File *fp, uint8_t* buf){
@@ -516,6 +533,8 @@ int RunLuaGame::l_drawrect(lua_State* L){
   }
 
   tft.drawRect(x, y, w, h, lua_rgb24to16(self->col[0], self->col[1], self->col[2]));
+
+  // tft.drawPngFile(SPIFFS, "/init/initspr.png", 0,48);//直接展開する
   return 0;
 }
 
@@ -1612,30 +1631,52 @@ L = luaL_newstate();
 
   haco8resume();//派生クラスでのみこの位置で実行されるダミー関数
 
-  LoadF lf(MAX_CHAR); // 1024 バイトのメモリを確保する例
-  lf.f = SPIFFS.open(appfileName, FILE_READ);
-
-  char cFileName[32];
-  appfileName.toCharArray(cFileName, 32);//char変換
   
-  if(lua_load(L, getF, &lf, cFileName, NULL)){//Luaに渡してファイル読み込みに成功したかチェック（成功すると0）
+LoadF lf(MAX_CHAR); // 2048 バイトのメモリを確保する例
+lf.f = SPIFFS.open(appfileName, FILE_READ);
+
+char cFileName[32];
+appfileName.toCharArray(cFileName, 32);//char変換
+
+if (lua_load(L, getF, &lf, cFileName, NULL)){//Luaに渡してファイル読み込みに成功したかチェック（成功すると0）
     printf("error? %s\n", lua_tostring(L, -1));
     Serial.printf("error? %s\n", lua_tostring(L, -1));
     runError = true;//エラーが発生
     errorString = lua_tostring(L, -1);
-  }
+}
 
-  if (!runError) {
+if (!runError) {
     if (lua_pcall(L, 0, 0, 0)) {
         Serial.printf("init error? %s\n", lua_tostring(L, -1));
         runError = true;
         errorString = lua_tostring(L, -1);
     }
-  }
+}
 
-  // 不要になった動的メモリを解放
-  delete[] lf.buf;
-  lf.buf = nullptr; // nullptr でポインタをクリアすることが推奨されています
+  // LoadF lf(MAX_CHAR); // 2048 バイトのメモリを確保する例
+  // lf.f = SPIFFS.open(appfileName, FILE_READ);
+
+  // char cFileName[32];
+  // appfileName.toCharArray(cFileName, 32);//char変換
+  
+  // if(lua_load(L, getF, &lf, cFileName, NULL)){//Luaに渡してファイル読み込みに成功したかチェック（成功すると0）
+  //   printf("error? %s\n", lua_tostring(L, -1));
+  //   Serial.printf("error? %s\n", lua_tostring(L, -1));
+  //   runError = true;//エラーが発生
+  //   errorString = lua_tostring(L, -1);
+  // }
+
+  // if (!runError) {
+  //   if (lua_pcall(L, 0, 0, 0)) {
+  //       Serial.printf("init error? %s\n", lua_tostring(L, -1));
+  //       runError = true;
+  //       errorString = lua_tostring(L, -1);
+  //   }
+  // }
+
+  // // 不要になった動的メモリを解放
+  // delete[] lf.buf;
+  // lf.buf = nullptr; // nullptr でポインタをクリアすることが推奨されています
 
   tft.fillScreen(TFT_BLACK);
 
@@ -1729,12 +1770,13 @@ int RunLuaGame::run(int _remainTime)
     } else if (wifiMode == SHOW) {
       // SHOWモードの処理を追加する
     }
+    //0コア情報
+    // tft.setTextColor(TFT_WHITE, TFT_BLUE);
+    // tft.setCursor(0, 127 - 16);
+    // tft.print(String(1000 / _remainTime) + "FPS");
+    // tft.setCursor(0, 127 - 8);
+    // tft.print(String(_remainTime) + "ms");
 
-    tft.setTextColor(TFT_WHITE, TFT_BLUE);
-    tft.setCursor(0, 127 - 16);
-    tft.print(String(1000 / _remainTime) + "FPS");
-    tft.setCursor(0, 127 - 8);
-    tft.print(String(_remainTime) + "ms");
   }
 
   return 0;

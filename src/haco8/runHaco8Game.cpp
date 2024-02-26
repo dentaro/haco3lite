@@ -55,6 +55,12 @@ extern bool drawMap();
 extern bool readRowFromBinary2(const char *filename);
 extern bool drawBinaryF;
 
+extern bool enemyF;
+extern uint8_t enemyX;
+extern uint8_t enemyY;
+extern uint8_t enemyTransCn;
+extern String enemyPath;
+
 bool alreadyDownlordedF= false;
 String currentKey = "";
 extern String targetKey;
@@ -62,6 +68,8 @@ extern float tileZoom;
 extern int currentDirNo;
 extern float bairitu;
 extern bool drawWaitF;
+// extern SPIFFSFS SPIFFS;
+
 bool collF=true;
 int mx = 62;//64;//128;//ダウンロードを先読みする距離
 int my = 58;//60;//120;//ダウンロードを先読みする距離
@@ -246,6 +254,14 @@ void RunHaco8Game::haco8resume()
   lua_setglobal(L, "mget");
 
   lua_pushlightuserdata(L, this);
+  lua_pushcclosure(L, l_mapf, 1);
+  lua_setglobal(L, "mapf");
+
+  lua_pushlightuserdata(L, this);
+  lua_pushcclosure(L, l_sprn, 1);
+  lua_setglobal(L, "sprn");
+
+  lua_pushlightuserdata(L, this);
   lua_pushcclosure(L, l_spr8, 1);
   lua_setglobal(L, "spr8");
 
@@ -296,6 +312,10 @@ void RunHaco8Game::haco8resume()
   lua_pushlightuserdata(L, this);
   lua_pushcclosure(L, l_print, 1);
   lua_setglobal(L, "print");
+
+  lua_pushlightuserdata(L, this);
+  lua_pushcclosure(L, l_win, 1);
+  lua_setglobal(L, "win");
 
   lua_pushlightuserdata(L, this);
   lua_pushcclosure(L, l_t, 1);
@@ -415,6 +435,20 @@ int RunHaco8Game::l_mset(lua_State* L){
   return 0;
 }
 
+int RunHaco8Game::l_mapf(lua_State* L){
+  int celx = lua_tointeger(L, 1);
+  int cely = lua_tointeger(L, 2);
+  int sprno=mapArray[int(cely/8.0)][int(celx/8.0)];
+  bool b = (sprbits[sprno])&1;//最下位ビットのみを取り出す
+  lua_pushboolean(L, b);
+  return 1;
+}
+int RunHaco8Game::l_sprn(lua_State* L){
+  int celx = lua_tointeger(L, 1);
+  int cely = lua_tointeger(L, 2);
+  lua_pushinteger(L, mapArray[int(cely/8)][int(celx/8)]);//配列はyを先にしている
+  return 1;
+}
 int RunHaco8Game::l_mget(lua_State* L){
   RunHaco8Game* self = (RunHaco8Game*)lua_touserdata(L, lua_upvalueindex(1));
   int celx = lua_tointeger(L, 1);
@@ -539,74 +573,6 @@ int RunHaco8Game::l_spr8(lua_State* L){
     }
     memcpy(preupCol, upCol, sizeof(upCol));
   }
-
-
-  // if(edgeno!=NULL)
-  // {//エッジあり
-  //   //キャラスプライト
-  //   for(int y=0;y<8;y++){
-  //       for(int x=0;x<8;x++){
-  //         uint8_t bit4;
-  //         int sprpos;
-          
-  //         sprpos = (sy*8*PNG_SPRITE_WIDTH+sx*8 + y*PNG_SPRITE_WIDTH + x)/2;//４ビット二つで８ビットに入れてるので1/2に
-  //         bit4 = sprite64cnos_vector[sprpos];
-  //         if(x%2 == 1)bit4 = (bit4 & 0b00001111);
-  //         if(x%2 == 0)bit4 = (bit4 >> 4);
-  //         sprite88_roi.drawPixel(x+1,y+1, gethaco3Col(bit4));
-        
-  //       }
-  //   }
-
-  //   sprite88_roi.drawRect(0,0,10,10,gethaco3Col(0));
-
-  //   bool upCol[10];
-  //   bool preupCol[10];
-  //   bool preCol = 1;
-  //   bool nowCol = 1;
-  //   bool nutta = false;
-
-  //   uint8_t colValR;
-  //   uint8_t colValG;
-  //   uint8_t colValB;
-
-  //   for(int y=0;y<10;y++){
-  //     for(int x=0;x<10;x++){
-        
-  //       colValR = sprite88_roi.readPixelRGB(x,y).R8();
-  //       colValG = sprite88_roi.readPixelRGB(x,y).G8();
-  //       colValB = sprite88_roi.readPixelRGB(x,y).B8();
-
-  //       if(colValR==0&&colValG==0&&colValB==0){//0: 黒色=なし
-  //         upCol[x] = 0;
-  //         nowCol = 0;
-  //       }else{
-  //         upCol[x] = 1;
-  //         nowCol = 1;
-  //         nutta=false;
-  //       }
-
-  //       if(preupCol[x] == 0&&nowCol == 1){//上が黒だったら
-  //         sprite88_roi.drawPixel(x,y-1, gethaco3Col(edgeno));
-  //       }
-
-  //       if(preupCol[x] == 1&&nowCol == 0&&y!=0){//上が黒以外だったら
-  //         sprite88_roi.drawPixel(x,y, gethaco3Col(edgeno));
-  //         // nutta = true;
-  //       }
-
-  //       if(preCol==0&&nowCol == 1){//黒から黒以外になったら
-  //         sprite88_roi.drawPixel(x-1,y, gethaco3Col(edgeno));
-  //       }
-        
-  //       if(preCol==1&&nowCol == 0&& nutta == false){//黒以外から黒になったら
-  //         sprite88_roi.drawPixel(x,y, gethaco3Col(edgeno));
-  //         nutta = true;
-  //       }
-  //       preCol = nowCol;
-  //     }
-  //     memcpy(preupCol, upCol, sizeof(upCol));
-  //   }
   }else{
     for(int y=0;y<8;y++){
       for(int x=0;x<8;x++){
@@ -1587,6 +1553,7 @@ int RunHaco8Game::l_fget(lua_State* L){
   return 1;
 }
 
+
 int RunHaco8Game::l_fset(lua_State* L){
   RunHaco8Game* self = (RunHaco8Game*)lua_touserdata(L, lua_upvalueindex(1));
   int8_t sprno = lua_tointeger(L, 1);
@@ -1929,13 +1896,131 @@ int RunHaco8Game::l_bxor(lua_State* L){
   return 1;
 }
 
+
+int RunHaco8Game::l_win(lua_State* L){
+  RunHaco8Game* self = (RunHaco8Game*)lua_touserdata(L, lua_upvalueindex(1));
+  int state = lua_tointeger(L, 1);
+  int x = lua_tointeger(L, 2);
+  int y = lua_tointeger(L, 3);
+  int row = lua_tointeger(L, 4);
+  int col = lua_tointeger(L, 5);
+  int charmax = lua_tointeger(L, 6);
+  int winID = lua_tointeger(L, 7);
+  const char* title = lua_tostring(L, 8);
+  
+  
+  if(state == 1){//可視化状態
+    tft.setFont(&lgfxJapanGothicP_8);
+    tft.fillRoundRect(x,y,(charmax*row+row+1)*8,(col+2)*8,4,gethaco3Col(1));
+    
+    for(int j = 0; j<col; j++){
+      for(int i = 0; i<row; i++){
+        tft.setTextColor(gethaco3Col(7));
+        
+
+        if(winID==0){
+          tft.setCursor(x+8+(i*(charmax+1)*8), y+8+(j*8));
+          tft.print("");
+          if(strcmp(title, "どうする？") == 0){
+            tft.print("ステテコ");
+            }
+          else if(strcmp(title, "どうぐ") == 0){
+            tft.print("みかわしのふく");
+            }
+          else if(strcmp(title, "むらびと") == 0){
+            tft.setFont(&lgfxJapanGothicP_16);
+            tft.print("曖昧模糊な薔薇の轟");
+            j++;//2倍角なのでjに1足して繰り返し回数を半分にする
+          }
+        }else if(winID==HPMP){
+          tft.setFont(&fonts::Font0);
+          tft.setCursor(x+4+(i*(charmax+1)*8), y+12+(j*8));
+          if(j==0){tft.print("HP");}
+          else if(j==1){tft.print("MP");}
+          tft.print("999");
+        }
+
+        // for(int n = 0; n<charmax; n++){
+        //   // tft.drawRect(x+8+(n*8)+(i*(charmax+1)*8), y+8+(j*8), 8,8, gethaco3Col(7));
+          // tft.setTextColor(gethaco3Col(7));
+          // tft.setCursor(x+8+(n*8)+(i*(charmax+1)*8), y+8+(j*8));
+          // tft.print("あ");
+        // }
+      }
+    }
+    //ウインドウタイトルを描画
+    tft.drawRoundRect(x+1,y+1,(charmax*row+row+1)*8-2,(col+2)*8-2, 4,gethaco3Col(7));//白い枠線
+    tft.setTextColor(gethaco3Col(7),gethaco3Col(1));//文字背景あり
+    tft.setTextSize(1);
+    tft.setFont(&lgfxJapanGothicP_8);
+    tft.setCursor(x+4, y);
+    tft.println(title);
+
+    // if(strcmp(title, "むらびと") == 0){
+    //   tft.setCursor(x+8, y+8);
+    //   tft.setClipRect(x+8, y+8, 144, 40);//文字以外のすべての描画にかかわるので最後に指定
+    //   tft.setFont(&lgfxJapanGothicP_16);
+    //   tft.print("曖昧模糊な薔薇の轟19文字も書ける");
+    // }
+  }
+
+  // gethaco3Col(1);//紺
+  // gethaco3Col(7);//白
+
+  // if(tsize == NULL){
+  //   tft.setTextSize(1);
+  //   tft.setFont(&fonts::Font0);
+  // }else if(tsize==8){
+  //   tft.setTextSize(1);
+  //   tft.setCursor(x,y);
+  //   // tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
+  //   tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),lua_rgb24to16(self->col2[0], self->col2[1], self->col2[2]));//文字背景を消せる
+  //   tft.setFont(&lgfxJapanGothicP_8);
+  // }else if(tsize==16){
+  //   tft.setTextSize(1);
+  //   tft.setCursor(x,y);
+  //   // tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
+  //   tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),lua_rgb24to16(self->col2[0], self->col2[1], self->col2[2]));//文字背景を消せる
+  //   tft.setFont(&lgfxJapanGothicP_16);
+  // }
+
+  // if(x == NULL && y == NULL && tsize == NULL && cn == NULL){//位置指定なしの場合
+  //   tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
+  //   tft.setCursor(0,0);
+  //   tft.setClipRect(0, 0, TFT_WIDTH, TFT_HEIGHT);
+  // }else if(x != NULL && y != NULL && tsize == NULL && cn == NULL){//位置指定ありの場合
+  //   tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
+  //   tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
+  //   tft.setCursor(x,y);
+  //   tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
+  // }else if(x != NULL && y != NULL && tsize != NULL && cn == NULL){//位置指定、、色指定ありの場合
+  //   tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
+  //   tft.setCursor(x,y);
+  //   tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
+  // }else if(x != NULL && y != NULL && tsize != NULL && cn != NULL){//位置指定、、色指定ありの場合
+  //   tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
+  //   tft.setCursor(x,y);
+  //   tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
+  // }else if(x != NULL && y != NULL && tsize != NULL && cn != NULL && cn2 != NULL){//位置指定、、色指定,背景色指定ありの場合
+  //   tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),lua_rgb24to16(self->col2[0], self->col2[1], self->col2[2]));//文字背景を消せる
+  //   tft.setCursor(x,y);
+  //   tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
+  // }
+  // tft.println(text);
+  // tft.clearClipRect();
+  // //描画後は設定をデフォルトに戻しておく
+  // tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
+  return 0;
+}
+
 int RunHaco8Game::l_print(lua_State* L){
   RunHaco8Game* self = (RunHaco8Game*)lua_touserdata(L, lua_upvalueindex(1));
   const char* text = lua_tostring(L, 1);
   int x = lua_tointeger(L, 2);
   int y = lua_tointeger(L, 3);
-  int cn = lua_tointeger(L, 4);
-  int cn2 = lua_tointeger(L, 5);
+  int tsize = lua_tointeger(L, 4);
+  int cn = lua_tointeger(L, 5);
+  int cn2 = lua_tointeger(L, 6);
 
   if(cn != NULL){
     self->col[0] = self->clist[cn][0]; // 5bit
@@ -1948,37 +2033,49 @@ int RunHaco8Game::l_print(lua_State* L){
     self->col2[2] = self->clist[cn2][2]; 
   }
 
-  if(x == NULL && y == NULL && cn == NULL){//位置指定なしの場合
-    // tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),TFT_BLACK);//文字背景あり
+  if(tsize == NULL){
+    tft.setTextSize(1);
+    tft.setFont(&fonts::Font0);
+  }else if(tsize==8){
+    tft.setTextSize(1);
+    tft.setCursor(x,y);
+    // tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
+    tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),lua_rgb24to16(self->col2[0], self->col2[1], self->col2[2]));//文字背景を消せる
+    tft.setFont(&lgfxJapanGothicP_8);
+  }else if(tsize==16){
+    tft.setTextSize(1);
+    tft.setCursor(x,y);
+    // tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
+    tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),lua_rgb24to16(self->col2[0], self->col2[1], self->col2[2]));//文字背景を消せる
+    tft.setFont(&lgfxJapanGothicP_16);
+  }
+
+  if(x == NULL && y == NULL && tsize == NULL && cn == NULL){//位置指定なしの場合
     tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
     tft.setCursor(0,0);
     tft.setClipRect(0, 0, TFT_WIDTH, TFT_HEIGHT);
-    //tft.setCursor(0,0);
-  }else if(x != NULL && y != NULL && cn == NULL){//位置指定ありの場合
+  }else if(x != NULL && y != NULL && tsize == NULL && cn == NULL){//位置指定ありの場合
     tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
     tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
     tft.setCursor(x,y);
     tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
-  }else if(x != NULL && y != NULL && cn != NULL){//位置指定、、色指定ありの場合
+  }else if(x != NULL && y != NULL && tsize != NULL && cn == NULL){//位置指定、、色指定ありの場合
+    tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
+    tft.setCursor(x,y);
+    tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
+  }else if(x != NULL && y != NULL && tsize != NULL && cn != NULL){//位置指定、、色指定ありの場合
     tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
     tft.setCursor(x,y);
     tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
-  }else if(x != NULL && y != NULL && cn != NULL && cn2 != NULL){//位置指定、、色指定,背景色指定ありの場合
+  }else if(x != NULL && y != NULL && tsize != NULL && cn != NULL && cn2 != NULL){//位置指定、、色指定,背景色指定ありの場合
     tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]),lua_rgb24to16(self->col2[0], self->col2[1], self->col2[2]));//文字背景を消せる
-    // tft.setTextColor(gethaco3Col(7), gethaco3Col(0));//文字背景あり
-    // tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    // tft.setTextColor(HACO3_C[cn], HACO3_C[cn2]);//文字背景あり
     tft.setCursor(x,y);
     tft.setClipRect(x, y, TFT_WIDTH-x, TFT_HEIGHT-y);
   }
-  // tft.setCursor(x,y);
-  // self->col[0] = self->clist[cn][0]; // 5bit
-  // self->col[1] = self->clist[cn][1]; // 6bit
-  // self->col[2] = self->clist[cn][2];       // 5bit
-  // tft.setTextColor(lua_rgb24to16(self->col[0], self->col[1], self->col[2]));//文字背景を消せる
   tft.println(text);
   tft.clearClipRect();
-  // Serial.print(text);//シリアルにも出力する
+  //描画後は設定をデフォルトに戻しておく
+  tft.setTextColor(TFT_WHITE,TFT_BLACK);//文字背景あり
   return 0;
 }
 
@@ -2015,6 +2112,7 @@ int RunHaco8Game::l_rect(lua_State* L){
   int xb = lua_tointeger(L, 3);
   int yb = lua_tointeger(L, 4);
   int cn = lua_tointeger(L, 5);
+  
   if(cn != NULL)
   {
   self->col[0] = self->clist[cn][0]; // 5bit
@@ -2025,6 +2123,8 @@ int RunHaco8Game::l_rect(lua_State* L){
   return 0;
 }
 
+
+
 int RunHaco8Game::l_rectfill(lua_State* L){
   RunHaco8Game* self = (RunHaco8Game*)lua_touserdata(L, lua_upvalueindex(1));
   int xa = lua_tointeger(L, 1);
@@ -2032,13 +2132,24 @@ int RunHaco8Game::l_rectfill(lua_State* L){
   int xb = lua_tointeger(L, 3);
   int yb = lua_tointeger(L, 4);
   int cn = lua_tointeger(L, 5);
-  if(cn != NULL)
-  {
-  self->col[0] = self->clist[cn][0]; // 5bit
-  self->col[1] = self->clist[cn][1]; // 6bit
-  self->col[2] = self->clist[cn][2]; // 5bit
+  String fn = lua_tostring(L, 6);
+  if(fn == NULL){
+    if(cn != NULL)
+    {
+    self->col[0] = self->clist[cn][0]; // 5bit
+    self->col[1] = self->clist[cn][1]; // 6bit
+    self->col[2] = self->clist[cn][2]; // 5bit
+    }
+    tft.fillRect(xa, ya, xb, yb, lua_rgb24to16(self->col[0], self->col[1], self->col[2]));
+  }else if(fn != NULL){//cnを透明対応色にしたい、、、
+    enemyF = true;
+    enemyPath = fn;
+    enemyX = 0;
+    enemyY = 32;
+    enemyX = xa;
+    enemyY = ya;
+    enemyTransCn = cn;
   }
-  tft.fillRect(xa, ya, xb, yb, lua_rgb24to16(self->col[0], self->col[1], self->col[2]));
   return 0;
 }
 

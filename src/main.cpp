@@ -26,6 +26,12 @@
 
 // File mfile;
 
+bool enemyF = false;
+uint8_t enemyX = 0;
+uint8_t enemyY = 0;
+uint8_t enemyTransCn = 0;
+String enemyPath = "";
+
 int pre_startRow = 0;
 bool drawWaitF = true;
 bool drawBinaryF = false;
@@ -220,6 +226,7 @@ LovyanGFX_DentaroUI ui(&screen);
 LGFX_Sprite tft(&screen);
 static LGFX_Sprite logoSprite( &screen );//背景スプライトはディスプレイに出力
 
+// static LGFX_Sprite enemySprite( &tft );
 // #include "MapDictionary.h"
 // MapDictionary& dict = MapDictionary::getInstance();
 
@@ -1395,6 +1402,10 @@ void setTFTedit(size_t _iseditmode){
   //   tft.createSprite( TFT_WIDTH, TFT_HEIGHT );
   //   tft.startWrite();//CSアサート開始
   // }
+
+  tft.setTextSize(1);
+  tft.setFont(&lgfxJapanGothicP_8);
+  tft.setTextColor(TFT_WHITE);
 }
 
 
@@ -1573,7 +1584,6 @@ void broadchat(String message) {
       return;
     }
   }
-
   fp.close();
   // editor.editorSetStatusMessage("Message sent");
 }
@@ -1624,7 +1634,6 @@ uint8_t readpixel(int i, int j)
 
 size_t cursor_index = 0;
 
-
 void safeReboot(){
   // editor.setCursorConfig(0,0,0);//カーソルの位置を強制リセット保存
       delay(50);
@@ -1642,14 +1651,8 @@ void safeReboot(){
       reboot(appfileName, TFT_RUN_MODE);//現状rebootしないと初期化が完全にできない
 }
 
-
-// void musicTask(void *pvParameters);
-
-
 void setup()
 {
-
-  
     // 同期用セマフォの作成
     syncSemaphore = xSemaphoreCreateBinary();
     // rmapSemaphore = xSemaphoreCreateBinary();
@@ -2570,11 +2573,10 @@ void loop()
       
     // }
 
+    //コア1情報(通常ループ)
     // ui.showTouchEventInfo( tft, 0, 100 );//タッチイベントを視覚化する
-    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
-    
-    
-    
+    // ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
+
     // spriteMap.drawPngFile(SPIFFS, "/init/param/map/0.png", 0, 0); 
     // spriteMap.fillScreen(TFT_BLUE);
 
@@ -2690,10 +2692,9 @@ void loop()
       
     }
     
-
+    //コア1情報(通常ループ)
     // ui.showTouchEventInfo( tft, 0, 100 );//タッチイベントを視覚化する
-    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
-
+    // ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
 
     //Affineを使わない書き方
     tft.setPivot(0, 0);
@@ -2753,9 +2754,9 @@ void loop()
     showMusicInfo();
     controlMusicVisual();
 
-    
-
-    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
+    //コア1情報(通常ループ)
+    // ui.showTouchEventInfo( tft, 0, 100 );//タッチイベントを視覚化する
+    // ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
 
     // for(size_t n=0; n<4; n++){
     //   Serial.print(channels->patterns[patternNo][n]);
@@ -2771,7 +2772,8 @@ void loop()
     // Serial.println(channels->getChannelVolume(0));
 
     // tft.fillRect(128, channels->getChannelVolume(0), 4,4,gethaco3Col(10));
-
+    
+    
     tft.setPivot(0, 0);
     tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
 
@@ -2850,9 +2852,27 @@ void loop()
 
     // tft.fillRect(0, targetDispRow*8, 8, 8, TFT_RED);
 
-    ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
+    //コア1情報(通常ループ)
+    // ui.showTouchEventInfo( tft, 0, 100 );//タッチイベントを視覚化する
+    // ui.showInfo( tft, 0, 0+8 );//ボタン情報、フレームレート情報などを表示します。
+    if(enemyF){
+
+      // sprite64.setPsram(false);
+      // sprite64.setColorDepth(16);    // 子スプライトの色深度
+      // sprite64.createSprite(48, 48); // ゲーム画面用スプライトメモリ確保
+
+      // sprite64.drawPngFile(SPIFFS, enemyPath, enemyX, enemyY);//sprite64に展開する
+      // sprite64.pushRotateZoom(&tft, enemyX, enemyY, 0, 1, 1, gethaco3Col(enemyTransCn));
+
+      // sprite64.deleteSprite();//消す
+
+      tft.drawPngFile(SPIFFS, enemyPath, enemyX, enemyY);//直接展開する
+    }
+
     tft.setPivot(0, 0);
     tft.pushRotateZoom(&screen, 40, 0, 0, 1, 1);
+
+    enemyF = false;//描画後に初期化
     
   }
 
